@@ -63,6 +63,9 @@ add_executable(
     TestPointwiseNode.cpp
     TestReductionAttributes.cpp
     TestReductionNode.cpp
+    TestResampleBwdAttributes.cpp
+    TestResampleBwdNode.cpp
+    TestGraphResampleBwd.cpp
     TestRMSNormAttributes.cpp
     TestRMSNormNode.cpp
     TestRMSNormBackwardAttributes.cpp

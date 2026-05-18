@@ -562,7 +562,6 @@ exclude_gpu:
       - "ex_gpu_<arch>"
 ```
 
-<<<<<<< users/dravindr/ctest_docs
 ### `execution_settings` (optional)
 
 ```yaml
@@ -591,7 +590,7 @@ See the MIOpen integration for a complete working example:
 - **CMake integration:** [projects/miopen/test/gtest/CMakeLists.txt](../../projects/miopen/test/gtest/CMakeLists.txt)
 - **Shared module:** [shared/ctest/TestCategories.cmake](./TestCategories.cmake)
 - **Parser script:** [shared/ctest/parse_test_categories.py](./parse_test_categories.py)
-=======
+
 ### **Install-time CTestTestfile (TheRock / install tree)**
 
 When tests are installed (e.g. into `/opt/rocm/bin/`), the **build-tree** test definitions are not installed. To run CTest from the **installed** location (e.g. on TheRock or any system that only has the install tree), projects can generate an **install-time CTestTestfile** that uses **relative paths** to the test executable.
@@ -617,4 +616,3 @@ Projects that use this pattern (e.g. MIOpen, rocBLAS) document it in their Integ
 
 - **miopen** - [test_categories.yaml](../../projects/miopen/test/gtest/test_categories.yaml) | [CMakeLists.txt](../../projects/miopen/test/gtest/CMakeLists.txt)
 - **rocblas** - [test_categories.yaml](../../projects/rocblas/clients/gtest/test_categories.yaml) | [CMakeLists.txt](../../projects/rocblas/clients/gtest/CMakeLists.txt)
->>>>>>> develop
