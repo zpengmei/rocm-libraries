@@ -40,9 +40,11 @@
 #include "stinkytofu/transforms/asm/EstimateAsmCyclesPass.hpp"
 #include "stinkytofu/transforms/asm/InsertDelayAluPass.hpp"
 #include "stinkytofu/transforms/asm/InsertVgprMsbPass.hpp"
+#include "stinkytofu/transforms/asm/InsertWaitAluPass.hpp"
 #include "stinkytofu/transforms/asm/LoopRegionRemarkPass.hpp"
 #include "stinkytofu/transforms/asm/MemTokenConsistencyCheckPass.hpp"
 #include "stinkytofu/transforms/asm/RemoveDelayAluPass.hpp"
+#include "stinkytofu/transforms/asm/RemoveWaitAluPass.hpp"
 #include "stinkytofu/transforms/asm/ScheduleFirstLRsPass.hpp"
 #include "stinkytofu/transforms/asm/ScheduleLastLRsPass.hpp"
 #include "stinkytofu/transforms/asm/SetMatrixReusePass.hpp"
@@ -97,8 +99,11 @@ bool buildGfx1250Pipeline(PassManager& pm, StinkyAsmModule& module) {
 
     const bool runScheduler = optLevel != OptLevel::O0;
     if (runScheduler) {
+        // -- kernel --
         // strip delay_alu before scheduling
         pm.addPass(createRemoveDelayAluPass());
+        // strip wait_alu/setreg(SCHED_MODE) before scheduling
+        pm.addPass(createRemoveWaitAluPass());
     }
 
     // -- region: loopWithPrefetch + noLoadLoopBody --
@@ -139,6 +144,7 @@ bool buildGfx1250Pipeline(PassManager& pm, StinkyAsmModule& module) {
     pm.addPass(createCFGBuilderPass());
     pm.addPass(createMemTokenConsistencyCheckPass());
     if (optLevel != OptLevel::O0) {
+        pm.addPass(createInsertWaitAluPass());
         pm.addPass(createInsertDelayAluPass(/*minWavesPerSimd=*/2));
         pm.addPass(createLoopRegionRemarkPass());
     }
