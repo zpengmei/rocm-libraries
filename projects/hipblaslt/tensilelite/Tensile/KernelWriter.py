@@ -5894,6 +5894,16 @@ class KernelWriter(metaclass=abc.ABCMeta):
                                "UseSgprForGRO": kernel["_UseSgprForGRO"],
                                # -1 disables SwInstructionPrefetch in Gfx1250Backend; else scratch pool index
                                "SwPrefetchScratchSgpr": int(self.sgprs.get("SwPrefetchScratch", -1)),
+                               # GEMM kernel parameters used purely for reporting in
+                               # EstimateRegisterUsagePass (MacroTile / MatrixInstruction / LDS).
+                               # MacroTile = MatrixInst * MIWaveTile * MIWaveGroup; MTK = DepthU.
+                               "MatrixInstM": int(kernel.get("MatrixInstM", 0)),
+                               "MatrixInstN": int(kernel.get("MatrixInstN", 0)),
+                               "MatrixInstK": int(kernel.get("MatrixInstK", 0)),
+                               "MatrixInstB": int(kernel.get("MatrixInstB", 0)),
+                               "MIWaveTile0": int(kernel["MIWaveTile"][0]) if kernel.get("MIWaveTile") else 0,
+                               "MIWaveTile1": int(kernel["MIWaveTile"][1]) if kernel.get("MIWaveTile") else 0,
+                               "DepthU":      int(kernel.get("DepthU", 0)),
                               }
 
       print2(f"StinkyTofu module options: {stinky_module_options}")

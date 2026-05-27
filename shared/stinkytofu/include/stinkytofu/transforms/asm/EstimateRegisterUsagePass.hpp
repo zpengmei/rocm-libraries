@@ -66,6 +66,20 @@ inline constexpr const char* kMaxSgprIdxMetadataKey = "EstimateRegisterUsagePass
 inline constexpr const char* kDeclaredVgprMetadataKey = "Signature.nextFreeVgpr";
 inline constexpr const char* kDeclaredSgprMetadataKey = "Signature.nextFreeSgpr";
 
+/// Optional GEMM kernel parameters used purely for human-readable reporting
+/// (MacroTile / MatrixInstruction / LDS bytes lines). All values are uint64;
+/// absence (std::nullopt) means "unknown" and the report omits the line.
+inline constexpr const char* kGemmMatrixInstMMetadataKey  = "Gemm.matrixInstM";
+inline constexpr const char* kGemmMatrixInstNMetadataKey  = "Gemm.matrixInstN";
+inline constexpr const char* kGemmMatrixInstKMetadataKey  = "Gemm.matrixInstK";
+inline constexpr const char* kGemmMatrixInstBMetadataKey  = "Gemm.matrixInstB";
+inline constexpr const char* kGemmMIWaveTile0MetadataKey  = "Gemm.miWaveTile0";
+inline constexpr const char* kGemmMIWaveTile1MetadataKey  = "Gemm.miWaveTile1";
+inline constexpr const char* kGemmMIWaveGroup0MetadataKey = "Gemm.miWaveGroup0";
+inline constexpr const char* kGemmMIWaveGroup1MetadataKey = "Gemm.miWaveGroup1";
+inline constexpr const char* kGemmDepthUMetadataKey       = "Gemm.depthU";
+inline constexpr const char* kGemmLdsBytesMetadataKey     = "Gemm.ldsBytes";
+
 /// Analysis result so other passes can read the estimate via AnalysisManager.
 struct EstimateRegisterUsageAnalysis {
     STINKYTOFU_ANALYSIS_KEY("EstimateRegisterUsageAnalysis")

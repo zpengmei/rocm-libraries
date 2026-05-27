@@ -258,6 +258,48 @@ class EstimateRegisterUsagePassImpl : public Pass {
         }
     }
 
+    /// Emit "MacroTile=MT<MT0>x<MT1>x<MTK>", MatrixInstruction, and LDS bytes lines
+    /// when the corresponding metadata keys are present on the Function. Each
+    /// piece is independently optional: missing keys silently drop their line.
+    /// MacroTile dims are derived as MatrixInst[M|N] * MIWaveTile[0|1] * MIWaveGroup[0|1];
+    /// the K-dim is DepthU.
+    static void reportGemmParams(const Function& func) {
+        auto get = [&](const char* k) -> std::optional<uint64_t> {
+            return func.getMetaData(k);
+        };
+
+        auto miM   = get(kGemmMatrixInstMMetadataKey);
+        auto miN   = get(kGemmMatrixInstNMetadataKey);
+        auto miK   = get(kGemmMatrixInstKMetadataKey);
+        auto miB   = get(kGemmMatrixInstBMetadataKey);
+        auto wt0   = get(kGemmMIWaveTile0MetadataKey);
+        auto wt1   = get(kGemmMIWaveTile1MetadataKey);
+        auto wg0   = get(kGemmMIWaveGroup0MetadataKey);
+        auto wg1   = get(kGemmMIWaveGroup1MetadataKey);
+        auto du    = get(kGemmDepthUMetadataKey);
+        auto ldsB  = get(kGemmLdsBytesMetadataKey);
+
+        if (miM && miN && wt0 && wt1 && wg0 && wg1 && du) {
+            const uint64_t mt0 = (*miM) * (*wt0) * (*wg0);
+            const uint64_t mt1 = (*miN) * (*wt1) * (*wg1);
+            const uint64_t mtk = *du;
+            std::cerr << "                        MacroTile=MT" << mt0 << "x" << mt1
+                      << "x" << mtk
+                      << "  (MIWaveTile=[" << *wt0 << "," << *wt1 << "]"
+                      << "  MIWaveGroup=[" << *wg0 << "," << *wg1 << "]"
+                      << "  DepthU=" << *du << ")\n";
+        }
+
+        if (miM && miN && miK && miB) {
+            std::cerr << "                        MatrixInstruction=[" << *miM << ", " << *miN
+                      << ", " << *miK << ", " << *miB << "]\n";
+        }
+
+        if (ldsB) {
+            std::cerr << "                        LdsNumBytes=" << *ldsB << "\n";
+        }
+    }
+
     static void report(const Function& func, const RegisterUsageEstimate& est) {
         auto pct = [](uint32_t saved, uint32_t total) -> double {
             if (total == 0) return 0.0;
@@ -266,6 +308,8 @@ class EstimateRegisterUsagePassImpl : public Pass {
 
         std::cerr << "\n[EstimateRegisterUsage] kernel=\"" << func.getName() << "\"\n";
         std::cerr << "                        basicBlocks=" << func.size() << "\n";
+
+        reportGemmParams(func);
         std::cerr << "  VGPR:  peakLive=" << est.peakVgpr
                   << "  maxIdxTouched=" << est.maxVgprIdx
                   << "  declared=" << est.declaredVgpr;

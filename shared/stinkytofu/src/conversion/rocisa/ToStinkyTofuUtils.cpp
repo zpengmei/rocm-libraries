@@ -1147,7 +1147,41 @@ void init_stinkytofu(nb::module_ m) {  // NOLINT(misc-use-internal-linkage)
                     module_->getFunction().setMetaData(
                         stinkytofu::kDeclaredSgprMetadataKey,
                         static_cast<uint64_t>(nextFreeS));
+
+                // Stamp GEMM kernel parameters used purely for reporting
+                // (MacroTile / MatrixInstruction / LDS lines emitted by
+                // EstimateRegisterUsagePass). MIWaveGroup and LDS bytes
+                // come from the signature/descriptor directly; MatrixInst
+                // dims, MIWaveTile and DepthU come from ModuleOptions
+                // (populated by the rocisa caller).
+                const auto& sd = signature_->kernelDescriptor;
+                if (sd.waveGroup[0] > 0)
+                    module_->getFunction().setMetaData(
+                        stinkytofu::kGemmMIWaveGroup0MetadataKey,
+                        static_cast<uint64_t>(sd.waveGroup[0]));
+                if (sd.waveGroup[1] > 0)
+                    module_->getFunction().setMetaData(
+                        stinkytofu::kGemmMIWaveGroup1MetadataKey,
+                        static_cast<uint64_t>(sd.waveGroup[1]));
+                if (sd.groupSegSize > 0)
+                    module_->getFunction().setMetaData(
+                        stinkytofu::kGemmLdsBytesMetadataKey,
+                        static_cast<uint64_t>(sd.groupSegSize));
             }
+
+            const auto& mo = module_->getModuleOptions();
+            auto stampIfPositive = [&](const char* key, int v) {
+                if (v > 0)
+                    module_->getFunction().setMetaData(key, static_cast<uint64_t>(v));
+            };
+            stampIfPositive(stinkytofu::kGemmMatrixInstMMetadataKey, mo.MatrixInstM);
+            stampIfPositive(stinkytofu::kGemmMatrixInstNMetadataKey, mo.MatrixInstN);
+            stampIfPositive(stinkytofu::kGemmMatrixInstKMetadataKey, mo.MatrixInstK);
+            stampIfPositive(stinkytofu::kGemmMatrixInstBMetadataKey, mo.MatrixInstB);
+            stampIfPositive(stinkytofu::kGemmMIWaveTile0MetadataKey, mo.MIWaveTile0);
+            stampIfPositive(stinkytofu::kGemmMIWaveTile1MetadataKey, mo.MIWaveTile1);
+            stampIfPositive(stinkytofu::kGemmDepthUMetadataKey,      mo.DepthU);
+
             module_->runOptimizationPipeline();
         }
 

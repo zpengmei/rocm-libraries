@@ -67,7 +67,14 @@
     X(EnableWaitCntInsertion, bool)       \
     X(VgprMsbMode, int)                   \
     X(EnableSwPrefetchInsertion, bool)    \
-    X(SwPrefetchScratchSgpr, int)
+    X(SwPrefetchScratchSgpr, int)         \
+    X(MatrixInstM, int)                   \
+    X(MatrixInstN, int)                   \
+    X(MatrixInstK, int)                   \
+    X(MatrixInstB, int)                   \
+    X(MIWaveTile0, int)                   \
+    X(MIWaveTile1, int)                   \
+    X(DepthU, int)
 
 namespace stinkytofu {
 /**
