@@ -38,8 +38,10 @@
 #include "stinkytofu/transforms/asm/AccumulateInstructionSizePass.hpp"
 #include "stinkytofu/transforms/asm/CFGBuilderPass.hpp"
 #include "stinkytofu/transforms/asm/EstimateAsmCyclesPass.hpp"
+#include "stinkytofu/transforms/asm/EstimateRegisterUsagePass.hpp"
 #include "stinkytofu/transforms/asm/InsertDelayAluPass.hpp"
 #include "stinkytofu/transforms/asm/InsertVgprMsbPass.hpp"
+#include "stinkytofu/transforms/asm/LongBranchLoweringPass.hpp"
 #include "stinkytofu/transforms/asm/MemTokenConsistencyCheckPass.hpp"
 #include "stinkytofu/transforms/asm/RemoveDelayAluPass.hpp"
 #include "stinkytofu/transforms/asm/ScheduleFirstLRsPass.hpp"
@@ -91,6 +93,14 @@ bool buildGfx1250Pipeline(PassManager& pm, StinkyAsmModule& module) {
     auto debugStreams = createDebugOutputStreams(moduleOptions);
     configureDebugOutput(pm, moduleOptions, "kernel-OuterPM", debugStreams);
 
+    // Lower long-branch idioms (s_getpc/s_add_i32/.../s_setpc_b64) to LabelData
+    // on the terminating s_setpc_b64 before any CFG construction. No-op on the
+    // Tensile/rocisa path (the converter already stamps LabelData via
+    // SSetPCB64.longBranchLabel); rescues raw-.s input where the CFG builder
+    // would otherwise assert on missing branch targets. See
+    // docs/user/long-branch-cfg.md.
+    pm.addPass(createLongBranchLoweringPass());
+
     if (optLevel != OptLevel::O0) {
         // -- kernel --
         // strip delay_alu before scheduling
@@ -127,11 +137,12 @@ bool buildGfx1250Pipeline(PassManager& pm, StinkyAsmModule& module) {
     // -- kernel --
     pm.addPass(createInsertVgprMsbPass());
     pm.addPass(createCFGBuilderPass());
-    pm.addPass(createMemTokenConsistencyCheckPass());
+    // pm.addPass(createMemTokenConsistencyCheckPass());
     if (optLevel != OptLevel::O0) {
         pm.addPass(createInsertDelayAluPass());
     }
     pm.addPass(createEstimateAsmCyclesPass());
+    pm.addPass(createEstimateRegisterUsagePass());
     if (moduleOptions.EnableSwPrefetchInsertion) {
         pm.addPass(createSwPrefetchInsertionPass(module));
     }

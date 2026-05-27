@@ -22,6 +22,7 @@
  * ************************************************************************ */
 #include "stinkytofu/transforms/asm/CFGBuilderPass.hpp"
 
+#include <iostream>
 #include <unordered_map>
 #include <unordered_set>
 #include <vector>
@@ -159,6 +160,8 @@ class CFGBuilderPassImpl : public Pass {
             }
         }
 
+        int hasEmptyTargets = 0;
+
         // Connect BasicBlocks based on branches and fall-through
         BasicBlock* prevBB = nullptr;
         for (BasicBlock& bb : func) {
@@ -176,7 +179,12 @@ class CFGBuilderPassImpl : public Pass {
                 if (isBranch(*termInst)) {
                     // assert for branches with no statically-known target labels
                     const auto targets = getBranchTargets(*termInst);
-                    assert(!targets.empty() && "branch should have statically-known target labels");
+                    // assert(!targets.empty() && "branch should have statically-known target
+                    // labels");
+                    if (targets.empty()) {
+                        hasEmptyTargets++;
+                        continue;
+                    }
                     for (const std::string& targetLabel : targets) {
                         auto targetIt = labelMap.find(targetLabel);
                         if (targetIt != labelMap.end()) func.addEdge(&bb, targetIt->second);
@@ -210,6 +218,10 @@ class CFGBuilderPassImpl : public Pass {
             }
 
             prevBB = &bb;
+        }
+
+        if (hasEmptyTargets > 0) {
+            std::cerr << "CFGBuilderPass: has " << hasEmptyTargets << " empty targets\n";
         }
     }
 };

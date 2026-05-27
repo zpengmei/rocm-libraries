@@ -45,6 +45,7 @@
 #include "stinkytofu/serialization/asm/StinkyAsmEmitter.hpp"
 #include "stinkytofu/support/DAGScheduleJsonWriter.hpp"
 #include "stinkytofu/support/PassOrderSnapshotJson.hpp"
+#include "stinkytofu/transforms/asm/EstimateRegisterUsagePass.hpp"
 
 using namespace stinkytofu;
 
@@ -596,6 +597,21 @@ int main(int argc, char** argv) {
         emitVerbatim(preResult);
     }
 
+    // Helper: copy declared VGPR/SGPR counts from the parsed signature into
+    // Function metadata so passes like EstimateRegisterUsagePass can read them
+    // without taking a dependency on SignatureBase.
+    auto stampDeclaredGprMetadata = [&](stinkytofu::Function& func) {
+        if (!asmSignature) return;
+        const int nextFreeV = asmSignature->getNextFreeVgpr();
+        const int nextFreeS = asmSignature->getNextFreeSgpr();
+        if (nextFreeV > 0)
+            func.setMetaData(stinkytofu::kDeclaredVgprMetadataKey,
+                             static_cast<uint64_t>(nextFreeV));
+        if (nextFreeS > 0)
+            func.setMetaData(stinkytofu::kDeclaredSgprMetadataKey,
+                             static_cast<uint64_t>(nextFreeS));
+    };
+
     // Process each function independently
     for (auto& parsedFunc : parsed.functions) {
         if (optLevel >= 0) {
@@ -612,6 +628,7 @@ int main(int argc, char** argv) {
                           << "'\n";
                 continue;
             }
+            stampDeclaredGprMetadata(func);
 
             stinkytofu::Backend backend(module);
             backend.runOptimization();
@@ -648,6 +665,7 @@ int main(int argc, char** argv) {
                           << "'\n";
                 continue;
             }
+            stampDeclaredGprMetadata(func);
 
             passManager.run(func);
 

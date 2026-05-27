@@ -69,6 +69,10 @@ struct StinkyAsmModule::Impl {
     int64_t totalInstructionBytes = -1;
 
     Impl(const std::string& name, const std::array<int, 3>& arch) : name(name), arch(arch) {
+        // Propagate the module name to the underlying Function so downstream
+        // passes (e.g. EstimateRegisterUsagePass) can report a meaningful
+        // kernel name.
+        function.setName(name);
         // Create a single BasicBlock to hold all instructions
         function.createBasicBlock("entry");
     }

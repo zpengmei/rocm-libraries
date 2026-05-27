@@ -46,6 +46,7 @@
 #include "instruction/mem.hpp"
 #include "instruction/mfma.hpp"
 #include "stinkytofu/bindings/python/Module.hpp"
+#include "stinkytofu/transforms/asm/EstimateRegisterUsagePass.hpp"
 #include "stinkytofu/hardware/ArchHelper.hpp"
 #include "stinkytofu/ir/asm/StinkyAsmDirectives.hpp"
 #include "stinkytofu/ir/asm/StinkyAsmIR.hpp"
@@ -1129,6 +1130,24 @@ void init_stinkytofu(nb::module_ m) {  // NOLINT(misc-use-internal-linkage)
 
         // Forward all StinkyAsmModule methods
         void runOptimizationPipeline() {
+            // Stamp the kernel-declared max VGPR/SGPR counts onto the Function
+            // metadata so EstimateRegisterUsagePass (and any other pass that
+            // wants the declared budget) can read them without depending on
+            // SignatureBase. The standalone stinkytofu-opt path stamps the same
+            // keys via parsed RawAsmSignature; this is the equivalent for the
+            // Tensile/rocisa production path which owns its signature here.
+            if (signature_) {
+                const int nextFreeV = signature_->getNextFreeVgpr();
+                const int nextFreeS = signature_->getNextFreeSgpr();
+                if (nextFreeV > 0)
+                    module_->getFunction().setMetaData(
+                        stinkytofu::kDeclaredVgprMetadataKey,
+                        static_cast<uint64_t>(nextFreeV));
+                if (nextFreeS > 0)
+                    module_->getFunction().setMetaData(
+                        stinkytofu::kDeclaredSgprMetadataKey,
+                        static_cast<uint64_t>(nextFreeS));
+            }
             module_->runOptimizationPipeline();
         }
 
