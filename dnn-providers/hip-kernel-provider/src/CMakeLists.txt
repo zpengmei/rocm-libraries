@@ -28,6 +28,11 @@ add_library(
     engines/plans/layernorm/LayernormFwdPlan.cpp
     engines/plans/layernorm/LayernormPlanBuilder.cpp
     engines/plans/layernorm/LayernormUtilities.cpp
+    engines/plans/resample/ResampleApplicabilityChecks.cpp
+    engines/plans/resample/ResampleFwdPlan.cpp
+    engines/plans/resample/ResamplePlanBuilder.cpp
+    engines/plans/resample/ResampleBwdPlan.cpp
+    engines/plans/resample/ResampleBwdPlanBuilder.cpp
     engines/plans/ApplicabilityChecks.cpp
 )
 if(ENABLE_ASM_SDPA_ENGINE)

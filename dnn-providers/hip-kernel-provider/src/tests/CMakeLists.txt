@@ -41,6 +41,9 @@ add_executable(
     engines/plans/RMSnorm/TestRMSnormBwdPlanBuilder.cpp
     engines/plans/RMSnorm/TestRMSnormBwdPlan.cpp
     engines/plans/RMSnorm/TestRMSnormApplicabilityChecks.cpp
+    engines/plans/Resample/TestResamplePlanBuilder.cpp
+    engines/plans/Resample/TestResampleFwdPlan.cpp
+    engines/plans/Resample/TestResampleBwdPlan.cpp
     hip/TestHipProgramAndKernel.cpp
     hip/TestHipKernelCompileOptions.cpp
 )

@@ -26,6 +26,7 @@ add_executable(
     RMSnorm/IntegrationGpuRMSnormForward.cpp
     RMSnorm/IntegrationGpuRMSnormBackward.cpp
     Layernorm/IntegrationGpuLayernormForward.cpp
+    Resample/IntegrationGpuResampleForward.cpp
 )
 
 target_compile_options(hip_kernel_provider_integration_tests PRIVATE ${HIPDNN_WARNING_COMPILE_OPTIONS})

@@ -9,6 +9,8 @@
 #include "engines/plans/batchnorm/BatchnormFwdTrainingPlanBuilder.hpp"
 #include "engines/plans/batchnorm/BatchnormPlanBuilder.hpp"
 #include "engines/plans/layernorm/LayernormPlanBuilder.hpp"
+#include "engines/plans/resample/ResampleBwdPlanBuilder.hpp"
+#include "engines/plans/resample/ResamplePlanBuilder.hpp"
 #include "hip/HipKernelCompiler.hpp"
 
 #ifdef HIPDNN_ENGINE_ASM_SDPA
@@ -45,6 +47,10 @@ const std::vector<HipKernelContainer::EngineDefinition>& HipKernelContainer::get
              engine->addPlanBuilder(std::make_unique<rmsnorm::RMSnormBwdPlanBuilder>(
                  kernelCompiler, devicePropertyProvider));
              engine->addPlanBuilder(std::make_unique<layernorm::LayernormPlanBuilder>(
+                 kernelCompiler, devicePropertyProvider));
+             engine->addPlanBuilder(std::make_unique<resample::ResamplePlanBuilder>(
+                 kernelCompiler, devicePropertyProvider));
+             engine->addPlanBuilder(std::make_unique<resample::ResampleBwdPlanBuilder>(
                  kernelCompiler, devicePropertyProvider));
              return engine;
          }},
