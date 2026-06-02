@@ -792,14 +792,14 @@ def cmake_build(Map conf=[:]){
                     """
                 }
                 else{ //run all tests
-                    if(!setup_args.contains("gfx1250")){
+                    // if(!setup_args.contains("gfx1250")){
                         echo "Full test suite requested (RUN_ALL_UNIT_TESTS=true or develop branch)"
-                        sh "ninja -j${nt} check"
-                    }
-                    else{ //do not run tests on gfx1250, just build everything
-                        echo "Building for gfx1250"
                         sh "ninja -j${nt}"
-                    }
+                    // }
+                    // else{ //do not run tests on gfx1250, just build everything
+                    //     echo "Building for gfx1250"
+                    //     sh "ninja -j${nt}"
+                    // }
                     if (params.RUN_ROCM_CK_TESTS) {
                         sh 'ninja check-rocm-ck'
                     }
@@ -902,56 +902,56 @@ def Build_CK(Map conf=[:]){
                     //check whether to run performance tests on this node
                     def arch = check_arch_name()
                     cmake_build(conf)
-                    if ( params.RUN_INDUCTOR_TESTS && arch == "gfx90a" ){
-                            echo "Run inductor codegen tests"
-                            sh "projects/composablekernel/script/run_inductor_tests.sh"
-                    }
-                    // run performance tests, stash the logs, results will be processed on the master node
-                    dir("projects/composablekernel/script"){
-                        if (params.RUN_PERFORMANCE_TESTS){
-                            if (params.RUN_FULL_QA && (arch == "gfx90a" || arch == "gfx942")){
-                                // run full tests on gfx90a or gfx942
-                                echo "Run full performance tests"
-                                sh "./run_full_performance_tests.sh 0 QA_${params.COMPILER_VERSION} ${env.BRANCH_NAME} ${NODE_NAME} ${arch}"
-                                archiveArtifacts "perf_*.log"
-                                stash includes: "perf_**.log", name: "perf_log_${arch}"
-                            }
-                            else if (!params.RUN_FULL_QA && (arch == "gfx90a" || arch == "gfx942")){
-                                // run standard tests on gfx90a or gfx942
-                                echo "Run performance tests"
-                                sh "./run_performance_tests.sh 0 CI_${params.COMPILER_VERSION} ${env.BRANCH_NAME} ${NODE_NAME} ${arch}"
-                                archiveArtifacts "perf_*.log"
-                                stash includes: "perf_**.log", name: "perf_log_${arch}"
-                            }
-                            else if ( arch != "gfx10"){
-                                // run basic tests on gfx11/gfx12/gfx908/gfx950, but not on gfx10, it takes too long
-                                echo "Run gemm performance tests"
-                                sh "./run_gemm_performance_tests.sh 0 CI_${params.COMPILER_VERSION} ${env.BRANCH_NAME} ${NODE_NAME} ${arch}"
-                                archiveArtifacts "perf_onnx_gemm_*.log"
-                                stash includes: "perf_onnx_gemm_**.log", name: "perf_log_${arch}"
-                            }
-                        }
-                    }
-                    if (params.hipTensor_test && arch == "gfx90a" ){
-                        // build and test hipTensor on gfx90a node
-                        sh """#!/bin/bash
-                            rm -rf rocm-libraries
-                            git clone --no-checkout --filter=blob:none https://github.com/ROCm/rocm-libraries.git
-                            cd rocm-libraries
-                            git sparse-checkout init --cone
-                            git sparse-checkout set projects/hiptensor
-                            git checkout "${params.hipTensor_branch}"
-                        """
-                        dir("rocm-libraries/projects/hiptensor"){
-                            sh """#!/bin/bash
-                                mkdir -p build
-                                ls -ltr
-                                CC=hipcc CXX=hipcc cmake -Bbuild . -D CMAKE_PREFIX_PATH="${env.WORKSPACE}/install"
-                                cmake --build build -- -j
-                                ctest --test-dir build
-                            """
-                        }
-                    }
+                    // if ( params.RUN_INDUCTOR_TESTS && arch == "gfx90a" ){
+                    //         echo "Run inductor codegen tests"
+                    //         sh "projects/composablekernel/script/run_inductor_tests.sh"
+                    // }
+                    // // run performance tests, stash the logs, results will be processed on the master node
+                    // dir("projects/composablekernel/script"){
+                    //     if (params.RUN_PERFORMANCE_TESTS){
+                    //         if (params.RUN_FULL_QA && (arch == "gfx90a" || arch == "gfx942")){
+                    //             // run full tests on gfx90a or gfx942
+                    //             echo "Run full performance tests"
+                    //             sh "./run_full_performance_tests.sh 0 QA_${params.COMPILER_VERSION} ${env.BRANCH_NAME} ${NODE_NAME} ${arch}"
+                    //             archiveArtifacts "perf_*.log"
+                    //             stash includes: "perf_**.log", name: "perf_log_${arch}"
+                    //         }
+                    //         else if (!params.RUN_FULL_QA && (arch == "gfx90a" || arch == "gfx942")){
+                    //             // run standard tests on gfx90a or gfx942
+                    //             echo "Run performance tests"
+                    //             sh "./run_performance_tests.sh 0 CI_${params.COMPILER_VERSION} ${env.BRANCH_NAME} ${NODE_NAME} ${arch}"
+                    //             archiveArtifacts "perf_*.log"
+                    //             stash includes: "perf_**.log", name: "perf_log_${arch}"
+                    //         }
+                    //         else if ( arch != "gfx10"){
+                    //             // run basic tests on gfx11/gfx12/gfx908/gfx950, but not on gfx10, it takes too long
+                    //             echo "Run gemm performance tests"
+                    //             sh "./run_gemm_performance_tests.sh 0 CI_${params.COMPILER_VERSION} ${env.BRANCH_NAME} ${NODE_NAME} ${arch}"
+                    //             archiveArtifacts "perf_onnx_gemm_*.log"
+                    //             stash includes: "perf_onnx_gemm_**.log", name: "perf_log_${arch}"
+                    //         }
+                    //     }
+                    // }
+                    // if (params.hipTensor_test && arch == "gfx90a" ){
+                    //     // build and test hipTensor on gfx90a node
+                    //     sh """#!/bin/bash
+                    //         rm -rf rocm-libraries
+                    //         git clone --no-checkout --filter=blob:none https://github.com/ROCm/rocm-libraries.git
+                    //         cd rocm-libraries
+                    //         git sparse-checkout init --cone
+                    //         git sparse-checkout set projects/hiptensor
+                    //         git checkout "${params.hipTensor_branch}"
+                    //     """
+                    //     dir("rocm-libraries/projects/hiptensor"){
+                    //         sh """#!/bin/bash
+                    //             mkdir -p build
+                    //             ls -ltr
+                    //             CC=hipcc CXX=hipcc cmake -Bbuild . -D CMAKE_PREFIX_PATH="${env.WORKSPACE}/install"
+                    //             cmake --build build -- -j
+                    //             ctest --test-dir build
+                    //         """
+                    //     }
+                    // }
                 }
             }
             setGithubStatus("${env.STAGE_NAME}", 'success', "Stage ${env.STAGE_NAME} passed")

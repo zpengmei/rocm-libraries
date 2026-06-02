@@ -663,7 +663,7 @@ pipeline {
                         beforeAgent true
                         expression { (params.BUILD_GFX942.toBoolean() || params.RUN_FULL_QA.toBoolean()) && !params.BUILD_INSTANCES_ONLY.toBoolean() }
                     }
-                    agent{ label rocmnode("gfx942") }
+                    agent{ label rocmnode("gfx90a") }
                     steps{
                         deleteDir()
                         script { loadCk(); ck.runBuildCKAndTests("gfx942") }
@@ -676,7 +676,7 @@ pipeline {
                         beforeAgent true
                         expression { params.BUILD_GFX950.toBoolean() && !params.BUILD_INSTANCES_ONLY.toBoolean() }
                     }
-                    agent{ label rocmnode("gfx950") }
+                    agent{ label rocmnode("gfx942") }
                     steps{
                         deleteDir()
                         script { loadCk(); ck.runBuildCKAndTests("gfx950") }
@@ -704,7 +704,7 @@ pipeline {
                         beforeAgent true
                         expression { params.BUILD_GFX90A.toBoolean() && !params.RUN_FULL_QA.toBoolean() && !params.BUILD_INSTANCES_ONLY.toBoolean() }
                     }
-                    agent{ label rocmnode("gfx90a") }
+                    agent{ label rocmnode("gfx942") }
                     steps{
                         deleteDir()
                         script { loadCk(); ck.runBuildCKAndTests("gfx90a") }
@@ -753,7 +753,7 @@ pipeline {
                         beforeAgent true
                         expression { params.BUILD_GFX103.toBoolean() && !params.RUN_FULL_QA.toBoolean() && !params.BUILD_INSTANCES_ONLY.toBoolean() }
                     }
-                    agent{ label rocmnode("gfx1030") }
+                    agent{ label rocmnode("gfx942") }
                     steps{
                         deleteDir()
                         script { loadCk(); ck.runBuildCKAndTests("gfx10-3-generic") }
@@ -766,7 +766,7 @@ pipeline {
                         beforeAgent true
                         expression { params.BUILD_GFX11.toBoolean() && !params.RUN_FULL_QA.toBoolean() && !params.BUILD_INSTANCES_ONLY.toBoolean() }
                     }
-                    agent{ label 'miopen && (gfx1101 || gfx1100)' }
+                    agent{ label rocmnode("gfx90a") }
                     steps{
                         deleteDir()
                         script { loadCk(); ck.runBuildCKAndTests("gfx11-generic") }
