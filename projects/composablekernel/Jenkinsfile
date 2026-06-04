@@ -35,10 +35,6 @@ pipeline {
             defaultValue: '/opt/rocm/llvm/bin/clang++',
             description: 'Compiler path (default: /opt/rocm/llvm/bin/clang++)')
         string(
-            name: 'TEST_TARGET',
-            defaultValue: 'test_ck_tile_streamk_tile_partitioner',
-            description: 'Which test to build and run (default: test_ck_tile_streamk_tile_partitioner)')
-        string(
             name: 'USE_CUSTOM_DOCKER',
             defaultValue: '',
             description: 'Custom docker image to use (leave blank for default)')
@@ -54,6 +50,10 @@ pipeline {
             name: 'BUILD_INSTANCES_ONLY',
             defaultValue: false,
             description: 'Set to true if only building (no GPU needed)')
+        string(
+            name: 'CTEST_PARALLEL',
+            defaultValue: '8',
+            description: 'Number of parallel test jobs for ctest (default: 8)')
     }
 
     environment {
@@ -66,7 +66,7 @@ pipeline {
             agent { label rocmnode("gfx908") }
             steps {
                 script {
-                    echo "=== Building ${params.TEST_TARGET} for gfx950 on gfx908 node ==="
+                    echo "=== Building all CK tests for gfx950 on gfx908 node ==="
 
                     // Load helper functions and checkout code
                     loadCk()
@@ -79,7 +79,7 @@ pipeline {
                     echo "Using Docker image: ${image}"
                     echo "Docker options: ${dockerOpts}"
 
-                    // Build the test inside Docker container
+                    // Build all tests inside Docker container
                     withDockerContainer(image: image, args: dockerOpts) {
                         sh """#!/bin/bash
                             set -ex
@@ -99,21 +99,30 @@ pipeline {
                                 -DCMAKE_PREFIX_PATH=/opt/rocm \
                                 ..
 
-                            # Build the specific test
-                            ninja -j\$(nproc) ${params.TEST_TARGET}
+                            # Build all tests (but don't run them)
+                            echo "Building all tests..."
+                            ninja -j\$(nproc)
 
-                            # Verify the binary was created
-                            ls -lh bin/${params.TEST_TARGET}
-                            echo "Binary size: \$(stat -c%s bin/${params.TEST_TARGET}) bytes"
+                            # Show what was built
+                            echo "Built binaries:"
+                            ls -lh bin/ | head -20
+                            echo "Total binaries: \$(ls bin/ | wc -l)"
                         """
                     }
 
-                    // Stash the compiled binary for the next stage
-                    dir("projects/composablekernel/build") {
-                        stash name: 'gfx950-test-binary', includes: "bin/${params.TEST_TARGET}"
+                    // Stash the entire build directory (includes binaries, libs, and CTest files)
+                    dir("projects/composablekernel") {
+                        echo "Stashing entire build directory..."
+                        stash name: 'gfx950-build-dir', includes: 'build/**'
+
+                        // Check stash size
+                        sh """
+                            echo "Build directory size:"
+                            du -sh build/
+                        """
                     }
 
-                    echo "Successfully built and stashed ${params.TEST_TARGET}"
+                    echo "Successfully built and stashed all tests"
                 }
             }
             post {
@@ -127,7 +136,7 @@ pipeline {
             agent { label rocmnode("gfx950") }
             steps {
                 script {
-                    echo "=== Running ${params.TEST_TARGET} on gfx950 node ==="
+                    echo "=== Running all CK tests on gfx950 node ==="
 
                     // Load helper functions (does minimal checkout for groovy file)
                     loadCk()
@@ -139,23 +148,31 @@ pipeline {
                     echo "Using Docker image: ${image}"
                     echo "Docker options: ${dockerOpts}"
 
-                    // Unstash the binary (creates full directory path automatically)
-                    unstash 'gfx950-test-binary'
+                    // Unstash the entire build directory
+                    echo "Unstashing build directory..."
+                    unstash 'gfx950-build-dir'
 
-                    // Run the test in the Docker container
+                    // Run all tests with ctest in the Docker container
                     withDockerContainer(image: image, args: dockerOpts) {
                         sh """#!/bin/bash
                             set -ex
 
                             # Verify GPU is accessible
+                            echo "Checking GPU availability:"
                             rocminfo | grep -i gfx950
 
-                            # Run the test
-                            cd bin
-                            ls -lh ${params.TEST_TARGET}
-                            ./${params.TEST_TARGET}
+                            # Navigate to build directory
+                            cd projects/composablekernel/build
 
-                            echo "Test completed successfully!"
+                            # Verify build directory contents
+                            echo "Build directory contents:"
+                            ls -lh
+
+                            # Run all tests with ctest
+                            echo "Running all tests with ctest..."
+                            ctest -j${params.CTEST_PARALLEL} --output-on-failure
+
+                            echo "All tests completed successfully!"
                         """
                     }
                 }
@@ -171,8 +188,8 @@ pipeline {
     post {
         success {
             echo "Pipeline completed successfully!"
-            echo "  - Built ${params.TEST_TARGET} on gfx908 targeting gfx950"
-            echo "  - Executed ${params.TEST_TARGET} on gfx950"
+            echo "  - Built all CK tests on gfx908 targeting gfx950"
+            echo "  - Executed all tests on gfx950 with ctest"
         }
         failure {
             echo "Pipeline failed"
