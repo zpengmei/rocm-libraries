@@ -12,7 +12,7 @@ TYPED_TEST(TEST_SUITE_NAME, StreamK_EdgeCase)
     this->Run(M, N, K);
 }
 
-TYPED_TEST(TEST_SUITE_NAME, StreamK_DPOnly)
+TYPED_TEST(TEST_SUITE_NAME, StreamK_DPOnlyTESTINGCHANGE)
 {
     const ck_tile::index_t num_cu     = get_cu_count();
     constexpr ck_tile::index_t M_Tile = std::tuple_element_t<7, TypeParam>::value;

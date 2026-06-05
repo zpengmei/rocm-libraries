@@ -16,7 +16,7 @@ TEST(StreamKTilePartitionerBaseConstructor, SKOnly)
     validate_streamk_base_constructor<Config::GemmShape>(expected_values, tile_partitioner);
 }
 
-TEST(StreamKTilePartitionerBaseConstructor, DPOnly)
+TEST(StreamKTilePartitionerBaseConstructor, DPOnlyTESTERCHANGE)
 {
     using Config = StreamKTilePartitionerBaseConfigDPOnly;
 

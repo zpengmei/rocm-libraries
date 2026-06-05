@@ -1,6 +1,7 @@
 // Simplified Composable Kernel Jenkins Pipeline
-// Purpose: Demonstrate cross-architecture compilation
-// Build on gfx908 targeting gfx950, then run test on gfx950
+// Purpose: Demonstrate cross-architecture compilation with smart build/test
+// Build on cpu-only targeting gfx950, then run test on gfx950
+// Uses smart_build.sh and smart_test.sh for intelligent selective testing
 
 ck = null
 
@@ -54,6 +55,10 @@ pipeline {
             name: 'CTEST_PARALLEL',
             defaultValue: '8',
             description: 'Number of parallel test jobs for ctest (default: 8)')
+        booleanParam(
+            name: 'DISABLE_SMART_BUILD',
+            defaultValue: false,
+            description: 'Disable smart build and force full build/test (default: OFF)')
     }
 
     environment {
@@ -62,11 +67,11 @@ pipeline {
     }
 
     stages {
-        stage('Build for gfx950 on gfx908') {
-            agent { label rocmnode("gfx908") }
+        stage('Build for gfx950 on cpu-only') {
+            agent { label rocmnode("cpu-only") }
             steps {
                 script {
-                    echo "=== Building all CK tests for gfx950 on gfx908 node ==="
+                    echo "=== Smart Build for gfx950 on cpu-only node ==="
 
                     // Load helper functions and checkout code
                     loadCk()
@@ -79,7 +84,10 @@ pipeline {
                     echo "Using Docker image: ${image}"
                     echo "Docker options: ${dockerOpts}"
 
-                    // Build specific tests inside Docker container
+                    // Determine if smart build should run
+                    def runAllTests = params.DISABLE_SMART_BUILD
+
+                    // Build using smart build system
                     withDockerContainer(image: image, args: dockerOpts) {
                         sh """#!/bin/bash
                             set -ex
@@ -90,38 +98,67 @@ pipeline {
                             mkdir build
                             cd build
 
-                            # Configure CMake to target gfx950
+                            # Configure CMake to target gfx950 with compile commands for smart build
                             cmake -G Ninja \
                                 -DCMAKE_CXX_COMPILER="${params.BUILD_COMPILER}" \
                                 -DCMAKE_HIP_COMPILER="${params.BUILD_COMPILER}" \
                                 -DGPU_TARGETS=gfx950 \
                                 -DCMAKE_BUILD_TYPE=Release \
                                 -DCMAKE_PREFIX_PATH=/opt/rocm \
+                                -DCMAKE_EXPORT_COMPILE_COMMANDS=ON \
                                 ..
 
-                            # Build only specific tests (faster for testing)
-                            echo "Building specific tests..."
-                            ninja -j\$(nproc) test_ck_tile_streamk_tile_partitioner test_ck_tile_streamk_linear_smoke
+                            # Set environment variables for smart build
+                            export WORKSPACE_ROOT=${env.WORKSPACE}/projects/composablekernel
+                            export BUILD_DIR=\$(pwd)
+                            export NINJA_JOBS=\$(nproc)
+                            export ARCH_NAME=gfx950
+                            export PARALLEL=32
+                            export CTEST_PARALLEL=${params.CTEST_PARALLEL}
 
-                            # Show what was built
-                            echo "Built binaries:"
-                            ls -lh bin/
+                            if [ "${runAllTests}" = "true" ]; then
+                                echo "Smart build disabled - building all tests..."
+                                ninja -j\$(nproc) tests examples
+                                # Create build_mode.env for smart_test.sh
+                                echo "SMART_BUILD_MODE=full" > build_mode.env
+                            else
+                                echo "Running smart build system..."
+                                bash ../script/dependency-parser/smart_build.sh
+                            fi
+
+                            # Show build results
+                            echo "Build artifacts:"
+                            ls -la
+                            if [ -f build_mode.env ]; then
+                                echo "Build mode:"
+                                cat build_mode.env
+                            fi
+                            if [ -f build_targets.txt ]; then
+                                echo "Build targets:"
+                                cat build_targets.txt
+                            fi
+                            if [ -f tests_to_run.json ]; then
+                                echo "Tests to run summary:"
+                                jq -r '.tests_to_run | length' tests_to_run.json || echo "N/A"
+                            fi
                         """
                     }
 
-                    // Stash the entire build directory (includes binaries, libs, and CTest files)
+                    // Stash the entire build directory AND scripts (needed for smart_test.sh on test node)
                     dir("projects/composablekernel") {
-                        echo "Stashing entire build directory..."
-                        stash name: 'gfx950-build-dir', includes: 'build/**'
+                        echo "Stashing build directory and scripts..."
+                        stash name: 'gfx950-build-dir', includes: 'build/**,script/dependency-parser/**'
 
                         // Check stash size
                         sh """
                             echo "Build directory size:"
                             du -sh build/
+                            echo "Scripts directory size:"
+                            du -sh script/dependency-parser/
                         """
                     }
 
-                    echo "Successfully built and stashed all tests"
+                    echo "Successfully built and stashed"
                 }
             }
             post {
@@ -135,7 +172,7 @@ pipeline {
             agent { label rocmnode("gfx950") }
             steps {
                 script {
-                    echo "=== Running all CK tests on gfx950 node ==="
+                    echo "=== Smart Test on gfx950 node ==="
 
                     // Load helper functions (does minimal checkout for groovy file)
                     loadCk()
@@ -148,20 +185,23 @@ pipeline {
                     echo "Docker options: ${dockerOpts}"
 
                     // Unstash the entire build directory in the correct context
-                    echo "Unstashing build directory..."
+                    echo "Unstashing build directory with smart build artifacts..."
                     dir("projects/composablekernel") {
                         unstash 'gfx950-build-dir'
 
-                        // Verify unstash worked
+                        // Verify unstash worked and show smart build artifacts
                         sh """
                             echo "Verifying unstash:"
-                            ls -la
-                            echo "Build directory exists:"
-                            ls -la build/ | head -10
+                            ls -la build/ | head -15
+
+                            if [ -f build/build_mode.env ]; then
+                                echo "Build mode from build stage:"
+                                cat build/build_mode.env
+                            fi
                         """
                     }
 
-                    // Run all tests with ctest in the Docker container
+                    // Run tests using smart test system
                     withDockerContainer(image: image, args: dockerOpts) {
                         sh """#!/bin/bash
                             set -ex
@@ -173,15 +213,13 @@ pipeline {
                             # Navigate to build directory
                             cd projects/composablekernel/build
 
-                            # Verify build directory contents
-                            echo "Build directory contents:"
-                            ls -lh
+                            # Set environment variables for smart test
+                            export BUILD_DIR=\$(pwd)
+                            export CTEST_PARALLEL=${params.CTEST_PARALLEL}
 
-                            # Run only the specific tests we built with ctest
-                            echo "Running specific tests with ctest..."
-                            ctest -R "test_ck_tile_streamk_tile_partitioner|test_ck_tile_streamk_linear_smoke" \
-                                  -j${params.CTEST_PARALLEL} \
-                                  --output-on-failure
+                            # Run smart test system (reads build_mode.env and runs appropriate tests)
+                            echo "Running smart test system..."
+                            bash ../script/dependency-parser/smart_test.sh
 
                             echo "Tests completed successfully!"
                         """
@@ -199,8 +237,9 @@ pipeline {
     post {
         success {
             echo "Pipeline completed successfully!"
-            echo "  - Built all CK tests on gfx908 targeting gfx950"
-            echo "  - Executed all tests on gfx950 with ctest"
+            echo "  - Smart build on cpu-only targeting gfx950"
+            echo "  - Smart test on gfx950"
+            echo "  - Smart build system determined affected tests and ran them efficiently"
         }
         failure {
             echo "Pipeline failed"
