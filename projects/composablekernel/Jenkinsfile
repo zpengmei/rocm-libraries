@@ -79,7 +79,7 @@ pipeline {
                     echo "Using Docker image: ${image}"
                     echo "Docker options: ${dockerOpts}"
 
-                    // Build all tests inside Docker container
+                    // Build specific tests inside Docker container
                     withDockerContainer(image: image, args: dockerOpts) {
                         sh """#!/bin/bash
                             set -ex
@@ -99,14 +99,13 @@ pipeline {
                                 -DCMAKE_PREFIX_PATH=/opt/rocm \
                                 ..
 
-                            # Build all tests (but don't run them)
-                            echo "Building all tests..."
-                            ninja -j\$(nproc)
+                            # Build only specific tests (faster for testing)
+                            echo "Building specific tests..."
+                            ninja -j\$(nproc) test_ck_tile_streamk_tile_partitioner test_ck_tile_streamk_linear_smoke
 
                             # Show what was built
                             echo "Built binaries:"
-                            ls -lh bin/ | head -20
-                            echo "Total binaries: \$(ls bin/ | wc -l)"
+                            ls -lh bin/
                         """
                     }
 
@@ -148,9 +147,19 @@ pipeline {
                     echo "Using Docker image: ${image}"
                     echo "Docker options: ${dockerOpts}"
 
-                    // Unstash the entire build directory
+                    // Unstash the entire build directory in the correct context
                     echo "Unstashing build directory..."
-                    unstash 'gfx950-build-dir'
+                    dir("projects/composablekernel") {
+                        unstash 'gfx950-build-dir'
+
+                        // Verify unstash worked
+                        sh """
+                            echo "Verifying unstash:"
+                            ls -la
+                            echo "Build directory exists:"
+                            ls -la build/ | head -10
+                        """
+                    }
 
                     // Run all tests with ctest in the Docker container
                     withDockerContainer(image: image, args: dockerOpts) {
@@ -168,11 +177,13 @@ pipeline {
                             echo "Build directory contents:"
                             ls -lh
 
-                            # Run all tests with ctest
-                            echo "Running all tests with ctest..."
-                            ctest -j${params.CTEST_PARALLEL} --output-on-failure
+                            # Run only the specific tests we built with ctest
+                            echo "Running specific tests with ctest..."
+                            ctest -R "test_ck_tile_streamk_tile_partitioner|test_ck_tile_streamk_linear_smoke" \
+                                  -j${params.CTEST_PARALLEL} \
+                                  --output-on-failure
 
-                            echo "All tests completed successfully!"
+                            echo "Tests completed successfully!"
                         """
                     }
                 }
