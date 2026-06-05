@@ -144,17 +144,15 @@ pipeline {
                         """
                     }
 
-                    // Stash the entire build directory AND scripts (needed for smart_test.sh on test node)
+                    // Stash only the build directory (test node will checkout repo for source/scripts)
                     dir("projects/composablekernel") {
-                        echo "Stashing build directory and scripts..."
-                        stash name: 'gfx950-build-dir', includes: 'build/**,script/dependency-parser/**'
+                        echo "Stashing build directory..."
+                        stash name: 'gfx950-build-dir', includes: 'build/**'
 
                         // Check stash size
                         sh """
                             echo "Build directory size:"
                             du -sh build/
-                            echo "Scripts directory size:"
-                            du -sh script/dependency-parser/
                         """
                     }
 
@@ -174,8 +172,9 @@ pipeline {
                 script {
                     echo "=== Smart Test on gfx950 node ==="
 
-                    // Load helper functions (does minimal checkout for groovy file)
+                    // Checkout repo (needed for source code, scripts, and python tests)
                     loadCk()
+                    ck.checkoutComposableKernel()
 
                     // Use existing helper functions to get Docker image and options
                     def (retimage, image) = ck.getDockerImage()
@@ -184,8 +183,8 @@ pipeline {
                     echo "Using Docker image: ${image}"
                     echo "Docker options: ${dockerOpts}"
 
-                    // Unstash the entire build directory in the correct context
-                    echo "Unstashing build directory with smart build artifacts..."
+                    // Unstash the build directory into projects/composablekernel/build/
+                    echo "Unstashing build directory..."
                     dir("projects/composablekernel") {
                         unstash 'gfx950-build-dir'
 
