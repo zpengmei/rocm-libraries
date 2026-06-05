@@ -68,10 +68,10 @@ pipeline {
 
     stages {
         stage('Build for gfx950 on cpu-only') {
-            agent { label rocmnode("gfx906") }
+            agent { label rocmnode("cpu-only") }
             steps {
                 script {
-                    echo "=== Smart Build for gfx950 on cpu-only node ==="
+                    echo "=== Building ALL tests for gfx950 on cpu-only node ==="
 
                     // Load helper functions and checkout code
                     loadCk()
@@ -116,15 +116,12 @@ pipeline {
                             export PARALLEL=32
                             export CTEST_PARALLEL=${params.CTEST_PARALLEL}
 
-                            if [ "${runAllTests}" = "true" ]; then
-                                echo "Smart build disabled - building all tests..."
-                                ninja -j\$(nproc) tests examples
-                                # Create build_mode.env for smart_test.sh
-                                echo "SMART_BUILD_MODE=full" > build_mode.env
-                            else
-                                echo "Running smart build system..."
-                                bash ../script/dependency-parser/smart_build.sh
-                            fi
+                            # Build all tests and examples
+                            echo "Building all tests and examples..."
+                            ninja -j256 tests examples
+
+                            # Create build_mode.env for smart_test.sh (full mode)
+                            echo "SMART_BUILD_MODE=full" > build_mode.env
 
                             # Show build results
                             echo "Build artifacts:"
@@ -170,7 +167,7 @@ pipeline {
             agent { label rocmnode("gfx950") }
             steps {
                 script {
-                    echo "=== Smart Test on gfx950 node ==="
+                    echo "=== Running ALL tests on gfx950 node ==="
 
                     // Checkout repo (needed for source code, scripts, and python tests)
                     loadCk()
