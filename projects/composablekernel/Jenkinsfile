@@ -102,11 +102,11 @@ pipeline {
             description: 'Specify which branch of hipTensor to use (default: develop)')
         booleanParam(
             name: "USE_SCCACHE",
-            defaultValue: true,
+            defaultValue: false,
             description: "Use the sccache for building CK (default: ON)")
         booleanParam(
             name: "DISABLE_SMART_BUILD",
-            defaultValue: false,
+            defaultValue: true,
             description: "Disable smart build system and force full build/test (default: OFF). Smart build uses pre-build dependency analysis for selective testing on PRs, full builds on nightly runs.")
         booleanParam(
             name: "RUN_CPPCHECK",
