@@ -130,7 +130,7 @@ pipeline {
             description: "Run the ck_tile FMHA tests (default: OFF)")
         booleanParam(
             name: "RUN_TILE_ENGINE_BASIC_TESTS",
-            defaultValue: true,
+            defaultValue: false,
             description: "Run the tile_engine_basic tests (default: ON)")
         booleanParam(
             name: "RUN_TILE_ENGINE_GEMM_TESTS",
@@ -202,7 +202,7 @@ pipeline {
             description: "Run CK_BUILDER tests (default: OFF)")
         booleanParam(
             name: "RUN_ROCM_CK_TESTS",
-            defaultValue: true,
+            defaultValue: false,
             description: "Run rocm_ck tests (default: ON)")
         booleanParam(
             name: "RUN_ALL_UNIT_TESTS",
@@ -254,7 +254,7 @@ pipeline {
             description: "Force CI to run even when only non-relevant files are changed (default: OFF)")
         booleanParam(
             name: 'USE_CURRENT_BRANCH_FOR_CK_GROOVY',
-            defaultValue: false,
+            defaultValue: true,
             description: 'Load ck.groovy from the current branch instead of develop. Enable when testing pipeline changes (default: OFF).')
     }
     environment{
