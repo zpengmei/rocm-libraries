@@ -158,7 +158,7 @@ pipeline {
             description: "Build CK and run tests on gfx942 (default: ON)")
         booleanParam(
             name: "BUILD_GFX950",
-            defaultValue: true,
+            defaultValue: false,
             description: "Build CK and run tests on gfx950 (default: ON)")
         booleanParam(
             name: "BUILD_GFX101",
@@ -170,15 +170,15 @@ pipeline {
             description: "Build CK and run tests on gfx103 (default: OFF)")
         booleanParam(
             name: "BUILD_GFX11",
-            defaultValue: true,
+            defaultValue: false,
             description: "Build CK and run tests on gfx11 (default: ON)")
         booleanParam(
             name: "BUILD_GFX12",
-            defaultValue: true,
+            defaultValue: false,
             description: "Build CK and run tests on gfx12 (default: ON)")
         booleanParam(
             name: "BUILD_GFX1250",
-            defaultValue: true,
+            defaultValue: false,
             description: "Build CK for gfx1250 (default: ON)")
         booleanParam(
             name: "NINJA_BUILD_TRACE",
@@ -681,7 +681,7 @@ pipeline {
                         beforeAgent true
                         expression { (params.BUILD_GFX942.toBoolean() || params.RUN_FULL_QA.toBoolean()) && !params.BUILD_INSTANCES_ONLY.toBoolean() }
                     }
-                    agent{ label rocmnode("gfx942") }
+                    agent{ label rocmnode("cpu-only") }
                     steps{
                         deleteDir()
                         script { loadCk(); ck.runBuildCKAndTests("gfx942") }
@@ -722,7 +722,7 @@ pipeline {
                         beforeAgent true
                         expression { params.BUILD_GFX90A.toBoolean() && !params.RUN_FULL_QA.toBoolean() && !params.BUILD_INSTANCES_ONLY.toBoolean() }
                     }
-                    agent{ label rocmnode("gfx90a") }
+                    agent{ label rocmnode("cpu-only") }
                     steps{
                         deleteDir()
                         script { loadCk(); ck.runBuildCKAndTests("gfx90a") }
