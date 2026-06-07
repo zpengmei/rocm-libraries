@@ -150,15 +150,15 @@ pipeline {
             description: "Build CK and run tests on gfx908 (default: OFF)")
         booleanParam(
             name: "BUILD_GFX90A",
-            defaultValue: true,
+            defaultValue: false,
             description: "Build CK and run tests on gfx90a (default: ON)")
         booleanParam(
             name: "BUILD_GFX942",
-            defaultValue: true,
+            defaultValue: false,
             description: "Build CK and run tests on gfx942 (default: ON)")
         booleanParam(
             name: "BUILD_GFX950",
-            defaultValue: false,
+            defaultValue: true,
             description: "Build CK and run tests on gfx950 (default: ON)")
         booleanParam(
             name: "BUILD_GFX101",
@@ -170,11 +170,11 @@ pipeline {
             description: "Build CK and run tests on gfx103 (default: OFF)")
         booleanParam(
             name: "BUILD_GFX11",
-            defaultValue: false,
+            defaultValue: true,
             description: "Build CK and run tests on gfx11 (default: ON)")
         booleanParam(
             name: "BUILD_GFX12",
-            defaultValue: false,
+            defaultValue: true,
             description: "Build CK and run tests on gfx12 (default: ON)")
         booleanParam(
             name: "BUILD_GFX1250",
@@ -694,7 +694,7 @@ pipeline {
                         beforeAgent true
                         expression { params.BUILD_GFX950.toBoolean() && !params.BUILD_INSTANCES_ONLY.toBoolean() }
                     }
-                    agent{ label rocmnode("gfx950") }
+                    agent{ label rocmnode("cpu-only") }
                     steps{
                         deleteDir()
                         script { loadCk(); ck.runBuildCKAndTests("gfx950") }
@@ -784,7 +784,7 @@ pipeline {
                         beforeAgent true
                         expression { params.BUILD_GFX11.toBoolean() && !params.RUN_FULL_QA.toBoolean() && !params.BUILD_INSTANCES_ONLY.toBoolean() }
                     }
-                    agent{ label 'miopen && (gfx1101 || gfx1100)' }
+                    agent{ label 'cpu-only' }
                     steps{
                         deleteDir()
                         script { loadCk(); ck.runBuildCKAndTests("gfx11-generic") }
@@ -797,7 +797,7 @@ pipeline {
                         beforeAgent true
                         expression { params.BUILD_GFX12.toBoolean() && !params.RUN_FULL_QA.toBoolean() && !params.BUILD_INSTANCES_ONLY.toBoolean() }
                     }
-                    agent{ label rocmnode("gfx1201") }
+                    agent{ label rocmnode("cpu-only") }
                     steps{
                         deleteDir()
                         script { loadCk(); ck.runBuildCKAndTests("gfx12-generic") }
