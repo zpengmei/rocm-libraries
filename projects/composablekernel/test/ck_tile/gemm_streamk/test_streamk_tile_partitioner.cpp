@@ -28,7 +28,7 @@ TEST(StreamKTilePartitionerBaseConstructor, DPOnlyTESTERCHANGE)
     validate_streamk_base_constructor<Config::GemmShape>(expected_values, tile_partitioner);
 }
 
-TEST(StreamKTilePartitionerBaseConstructor, DP2TileSK)
+TEST(StreamKTilePartitionerBaseConstructor, DP2TileSKTESTERCHANGE)
 {
     using Config = StreamKTilePartitionerBaseConfigDP2TileSK;
 

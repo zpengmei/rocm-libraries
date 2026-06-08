@@ -68,7 +68,7 @@ pipeline {
 
     stages {
         stage('Build for gfx950 on cpu-only') {
-            agent { label rocmnode("gfx906") }
+            agent { label rocmnode("cpu-only") }
             steps {
                 script {
                     echo "=== Smart Build for gfx950 on cpu-only node ==="
