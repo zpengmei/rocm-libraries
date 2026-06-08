@@ -40,7 +40,7 @@ TEST(StreamKTilePartitionerBaseConstructor, DP2TileSKTESTERCHANGE)
     validate_streamk_base_constructor<Config::GemmShape>(expected_values, tile_partitioner);
 }
 
-TEST(StreamKTilePartitionerBaseConstructor, EdgeCase)
+TEST(StreamKTilePartitionerBaseConstructor, EdgeCaseTESTERCHANGE)
 {
     using Config = StreamKTilePartitionerBaseConfigEdgeCase;
 
