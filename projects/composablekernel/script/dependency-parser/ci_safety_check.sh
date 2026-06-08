@@ -58,11 +58,11 @@ CHANGED_FILES=$(git diff --name-only origin/${BASE_BRANCH}...HEAD 2>/dev/null ||
 # - Scripts: Only build-critical scripts (dependency-parser, cmake utilities)
 # - Compiler: .clang-format, .clang-tidy within projects/composablekernel/
 # - Python: setup.py, pyproject.toml within projects/composablekernel/
-BUILD_INFRA_PATTERN="(projects/composablekernel/.*CMakeLists\.txt"
-BUILD_INFRA_PATTERN="${BUILD_INFRA_PATTERN}|projects/composablekernel/.*\.cmake$|projects/composablekernel/.*\.cmake\.in$"
-BUILD_INFRA_PATTERN="${BUILD_INFRA_PATTERN}|projects/composablekernel/script/dependency-parser/"
-BUILD_INFRA_PATTERN="${BUILD_INFRA_PATTERN}|projects/composablekernel/script/cmake/"
-BUILD_INFRA_PATTERN="${BUILD_INFRA_PATTERN}|projects/composablekernel/setup\.py|projects/composablekernel/pyproject\.toml)"
+# BUILD_INFRA_PATTERN="(projects/composablekernel/.*CMakeLists\.txt"
+# BUILD_INFRA_PATTERN="${BUILD_INFRA_PATTERN}|projects/composablekernel/.*\.cmake$|projects/composablekernel/.*\.cmake\.in$"
+# BUILD_INFRA_PATTERN="${BUILD_INFRA_PATTERN}|projects/composablekernel/script/dependency-parser/"
+# BUILD_INFRA_PATTERN="${BUILD_INFRA_PATTERN}|projects/composablekernel/script/cmake/"
+BUILD_INFRA_PATTERN="(projects/composablekernel/setup\.py|projects/composablekernel/pyproject\.toml)"
 
 if echo "$CHANGED_FILES" | grep -qE "${BUILD_INFRA_PATTERN}"; then
     FORCE_FULL_BUILD=true
