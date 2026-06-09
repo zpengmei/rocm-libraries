@@ -65,7 +65,7 @@ export PARALLEL
 if ! bash "${SCRIPT_DIR}/smart_build_ci.sh"; then
     # Full build required (exit code 1 from smart_build_ci.sh)
     echo "⚠ Full build mode - building and testing everything"
-    ninja -j256 examples tests
+    ninja -j${NINJA_JOBS} check
 
     # Process ninja build trace if requested
     if [ "$PROCESS_NINJA_TRACE" = "true" ]; then
