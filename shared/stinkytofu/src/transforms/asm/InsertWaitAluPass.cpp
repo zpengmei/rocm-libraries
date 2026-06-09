@@ -650,33 +650,34 @@ class InsertWaitAluPassImpl : public Pass {
                 continue;
             }
 
-            // Function return: emit drain so callee leaves HW counters at zero.
-            // Required for the caller-side reset above to be sound. The drain
-            // is emitted in-place via emitWaitAlu (folding any adjacent
-            // hold_cnt-only survivor) and then applied to the scoreboard.
+            // Function return: emit unconditional drain so callee leaves HW
+            // counters at zero. Required for the caller-side reset above to
+            // be sound. The drain is emitted in-place via emitWaitAlu
+            // (folding any adjacent hold_cnt-only survivor).
             if (isFuncReturn(*inst)) {
+                // Unconditional both-counter drain. The callee's SW scoreboard
+                // only models its own producers, so a per-counter gate would
+                // miss caller leftovers when the callee body happens not to
+                // bump that counter. Always emitting va_vdst(0) vm_vsrc(0)
+                // makes the ABI contract structural rather than tracking-
+                // derived; a redundant field is a no-op at runtime and gets
+                // pruned by RemoveWaitAluPass if it constrains nothing.
                 Wait drain;
-                if (sb.getScoreRange(CT_VA_VDST) > 0) addWait(drain, CT_VA_VDST, 0);
-                if (sb.getScoreRange(CT_VM_VSRC) > 0) addWait(drain, CT_VM_VSRC, 0);
-                if (drain.hasAny()) {
-                    PASS_DEBUG(std::cerr
-                               << "[InsertWaitAlu]   return drain s_wait_alu va_vdst="
-                               << (isNoWait(drain, CT_VA_VDST) ? -1 : int(drain.get(CT_VA_VDST)))
-                               << " vm_vsrc="
-                               << (isNoWait(drain, CT_VM_VSRC) ? -1 : int(drain.get(CT_VM_VSRC)))
-                               << "\n");
-                    if (emit) {
-                        int holdCnt = extractAdjacentHoldCnt(bb, inst);
-                        if (holdCnt >= 0)
-                            PASS_DEBUG(std::cerr << "[InsertWaitAlu]     fold hold_cnt=" << holdCnt
-                                                 << " from adjacent survivor\n");
-                        emitWaitAlu(bb, inst, drain, holdCnt);
-                        PASS_DEBUG(std::cerr << "[InsertWaitAlu]     inserted return drain before "
-                                             << inst->getHwInstDesc()->mnemonic << "\n");
-                    }
-                    if (!isNoWait(drain, CT_VA_VDST)) sb.applyWaitcnt(CT_VA_VDST, 0);
-                    if (!isNoWait(drain, CT_VM_VSRC)) sb.applyWaitcnt(CT_VM_VSRC, 0);
+                addWait(drain, CT_VA_VDST, 0);
+                addWait(drain, CT_VM_VSRC, 0);
+                PASS_DEBUG(std::cerr
+                           << "[InsertWaitAlu]   return drain s_wait_alu va_vdst=0 vm_vsrc=0\n");
+                if (emit) {
+                    int holdCnt = extractAdjacentHoldCnt(bb, inst);
+                    if (holdCnt >= 0)
+                        PASS_DEBUG(std::cerr << "[InsertWaitAlu]     fold hold_cnt=" << holdCnt
+                                             << " from adjacent survivor\n");
+                    emitWaitAlu(bb, inst, drain, holdCnt);
+                    PASS_DEBUG(std::cerr << "[InsertWaitAlu]     inserted return drain before "
+                                         << inst->getHwInstDesc()->mnemonic << "\n");
                 }
+                sb.applyWaitcnt(CT_VA_VDST, 0);
+                sb.applyWaitcnt(CT_VM_VSRC, 0);
                 ++it;
                 continue;
             }
