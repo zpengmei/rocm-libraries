@@ -219,16 +219,24 @@ inline bool isWaitAluInst(const StinkyInstruction& inst) {
 // TODO: replace with canonical isReturn() / isCall() helpers once they land.
 //
 // s_setpc_b64 is two things at runtime: a return (paired with a prior
-// s_swappc_b64) or an intra-function long jump. The opcode alone can't tell
-// them apart, so we handle neither here. Returns are already covered by the
-// disable/re-enable inserted around the call's s_swappc_b64; long jumps
-// don't need a flip.
+// s_swappc_b64) or an intra-function long jump. Discriminate by operand:
+// Tensile's calling convention always saves the return PC in s[26:27], so an
+// s_setpc_b64 reading s[26:27] is a return; any other src reg pair (e.g.
+// s[70:71] for a long branch built via s_getpc_b64) is an intra-function jump.
 inline bool isReturn(const StinkyInstruction& inst) {
     return inst.getUnifiedOpcode() == GFX::s_endpgm;
 }
 
 inline bool isCall(const StinkyInstruction& inst) {
     return inst.getUnifiedOpcode() == GFX::s_swappc_b64;
+}
+
+inline bool isFuncReturn(const StinkyInstruction& inst) {
+    if (inst.getUnifiedOpcode() != GFX::s_setpc_b64) return false;
+    if (inst.getNumSrcRegs() == 0) return false;
+    const auto& src = inst.getSrcReg(0);
+    if (src.dataType != StinkyRegister::Type::Register) return false;
+    return src.reg.type == RegType::S && src.reg.idx == 26 && src.reg.num == 2;
 }
 
 // ---------------------------------------------------------------------------
@@ -624,6 +632,54 @@ class InsertWaitAluPassImpl : public Pass {
 
             PASS_DEBUG(std::cerr << "[InsertWaitAlu]   visit " << inst->getHwInstDesc()->mnemonic
                                  << "\n");
+
+            // Function-call boundary (LLVM SIInsertWaitcnts contract):
+            //   * Caller emits no wait at the call site — Wait = AMDGPU::Waitcnt().
+            //   * Callee drains everything at its return — Wait = AllZeroWait.
+            //   * After the call, caller resets bracket state — the callee
+            //     guarantees zero in-flight on return, so post-call tracking
+            //     starts fresh.
+            // Without this, pre-call producer scores leak into post-call
+            // instructions and create phantom waits / missed barriers.
+            if (isCall(*inst)) {
+                PASS_DEBUG(std::cerr << "[InsertWaitAlu]   call — reset brackets (callee drains "
+                                        "at return)\n");
+                sb.applyWaitcnt(CT_VA_VDST, 0);
+                sb.applyWaitcnt(CT_VM_VSRC, 0);
+                ++it;
+                continue;
+            }
+
+            // Function return: emit drain so callee leaves HW counters at zero.
+            // Required for the caller-side reset above to be sound. The drain
+            // is emitted in-place via emitWaitAlu (folding any adjacent
+            // hold_cnt-only survivor) and then applied to the scoreboard.
+            if (isFuncReturn(*inst)) {
+                Wait drain;
+                if (sb.getScoreRange(CT_VA_VDST) > 0) addWait(drain, CT_VA_VDST, 0);
+                if (sb.getScoreRange(CT_VM_VSRC) > 0) addWait(drain, CT_VM_VSRC, 0);
+                if (drain.hasAny()) {
+                    PASS_DEBUG(std::cerr
+                               << "[InsertWaitAlu]   return drain s_wait_alu va_vdst="
+                               << (isNoWait(drain, CT_VA_VDST) ? -1 : int(drain.get(CT_VA_VDST)))
+                               << " vm_vsrc="
+                               << (isNoWait(drain, CT_VM_VSRC) ? -1 : int(drain.get(CT_VM_VSRC)))
+                               << "\n");
+                    if (emit) {
+                        int holdCnt = extractAdjacentHoldCnt(bb, inst);
+                        if (holdCnt >= 0)
+                            PASS_DEBUG(std::cerr << "[InsertWaitAlu]     fold hold_cnt=" << holdCnt
+                                                 << " from adjacent survivor\n");
+                        emitWaitAlu(bb, inst, drain, holdCnt);
+                        PASS_DEBUG(std::cerr << "[InsertWaitAlu]     inserted return drain before "
+                                             << inst->getHwInstDesc()->mnemonic << "\n");
+                    }
+                    if (!isNoWait(drain, CT_VA_VDST)) sb.applyWaitcnt(CT_VA_VDST, 0);
+                    if (!isNoWait(drain, CT_VM_VSRC)) sb.applyWaitcnt(CT_VM_VSRC, 0);
+                }
+                ++it;
+                continue;
+            }
 
             Wait wait = computeWaitForInst(*inst, sb);
             if (wait.hasAny()) {
