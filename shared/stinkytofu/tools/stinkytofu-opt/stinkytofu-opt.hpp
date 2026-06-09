@@ -37,6 +37,7 @@
 #include "stinkytofu/transforms/asm/InsertVgprMsbPass.hpp"
 #include "stinkytofu/transforms/asm/InsertWaitAluPass.hpp"
 #include "stinkytofu/transforms/asm/LoopRegionRemarkPass.hpp"
+#include "stinkytofu/transforms/asm/LowerVgprMsbPass.hpp"
 #include "stinkytofu/transforms/asm/MemTokenConsistencyCheckPass.hpp"
 #include "stinkytofu/transforms/asm/PeepholeOptimizationPass.hpp"
 #include "stinkytofu/transforms/asm/RaiseVgprMsbPass.hpp"
@@ -87,6 +88,7 @@ const std::vector<PassInfo> availablePasses = {
     {"MemTokenConsistencyCheckPass", []() { return createMemTokenConsistencyCheckPass(); }},
     {"RaiseVgprMsbPass", []() { return createRaiseVgprMsbPass(); }},
     {"InsertVgprMsbPass", []() { return createInsertVgprMsbPass(); }},
+    {"LowerVgprMsbPass", []() { return createLowerVgprMsbPass(); }},
     {"RemoveWaitAluPass", []() { return createRemoveWaitAluPass(); }},
     {"InsertWaitAluPass", []() { return createInsertWaitAluPass(); }},
 };

@@ -25,6 +25,7 @@ target_sources(stinkytofu PRIVATE
     MemTokenConsistencyCheckPass.cpp
     InsertVgprMsbPass.cpp
     RaiseVgprMsbPass.cpp
+    LowerVgprMsbPass.cpp
     RemoveDelayAluPass.cpp
     InsertDelayAluPass.cpp
     LoopRegionRemarkPass.cpp
