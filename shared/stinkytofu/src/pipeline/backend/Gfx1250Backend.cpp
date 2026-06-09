@@ -59,31 +59,6 @@ namespace stinkytofu {
 namespace {
 constexpr std::array<int, 3> GFX1250_ARCH{12, 5, 0};
 
-/// Build the gfx1250 per-region optimization passes into a PassManager.
-/// TODO: enableWaitCnt is a per-pass toggle for the
-/// bring-up phase. Once the pipeline stabilizes, pass selection should
-/// be controlled by OptLevel.
-void addGfx1250RegionPasses(PassManager& pm, const StinkyAsmModule& module, OptLevel optLevel,
-                            bool enableWaitCnt, bool runScheduler) {
-    // Verify IR integrity before running any passes
-    // This catches IR corruption early before it propagates through optimization
-    pm.addPass(createStinkyIRVerifierPass());
-
-    pm.addPass(createCFGBuilderPass());
-    if (enableWaitCnt) {
-        pm.addPass(createStinkyRemoveWaitCntPass());
-        pm.addPass(createStinkyRemoveNopPass());
-    }
-
-    // addPeepholeOptPasses(pm, optLevel);
-
-    // Instruction scheduling
-    pm.addPass(createStinkyBuildImplicitDependencyPass());
-    if (runScheduler) {
-        pm.addPass(createStinkyDAGSchedulerPass());
-    }
-}
-
 /// Build the full gfx1250 pipeline into \p pm using ScopeAdaptors.
 /// TODO: EnableWaitCntInsertion is a per-pass toggle for the
 /// bring-up phase. Once the pipeline stabilizes, pass selection should
@@ -97,55 +72,19 @@ bool buildGfx1250Pipeline(PassManager& pm, StinkyAsmModule& module) {
     auto debugStreams = createDebugOutputStreams(moduleOptions);
     configureDebugOutput(pm, moduleOptions, "kernel-OuterPM", debugStreams);
 
-    const bool runScheduler = optLevel != OptLevel::O0;
-    if (runScheduler) {
-        // -- kernel --
-        // strip delay_alu before scheduling
-        pm.addPass(createRemoveDelayAluPass());
-        // strip wait_alu/setreg(SCHED_MODE) before scheduling
-        pm.addPass(createRemoveWaitAluPass());
-    }
-
-    // -- region: loopWithPrefetch + noLoadLoopBody --
-    // Both the DAG scheduler (O3) and waitcnt insertion need the region-scoped CFG, so they
-    // share one region adaptor. Either gate is enough to enter this block.
-    if (runScheduler || moduleOptions.EnableWaitCntInsertion) {
-        PassFeatureConfig passFeatureConfig;
-        std::shared_ptr<DAGScheduleJsonCollector> snapshotCollector;
-        if (runScheduler) {
-            passFeatureConfig.barrierConfig.unrollMovableBarrier = true;
-            passFeatureConfig.loopConfig.unrollGemm = true;
-            passFeatureConfig.dagFeatures.distributeGlobalRead = true;
-            passFeatureConfig.passOrderSnapshot.jsonPath = moduleOptions.PassOrderSnapshotJson;
-            snapshotCollector = createPassOrderSnapshotCollector(passFeatureConfig, moduleOptions,
-                                                                 module.getName());
-            passFeatureConfig.passOrderSnapshot.titlePrefix = "loopWithPrefetch+noLoadLoopBody";
-        }
-
-        PassManager innerPM;
-        registerAllAnalyses(innerPM.getAnalysisManager());
-        innerPM.setPassFeatureConfig(passFeatureConfig);
-        if (snapshotCollector) {
-            configurePassOrderSnapshot(innerPM, snapshotCollector);
-        }
-        configureDebugOutput(innerPM, moduleOptions, "loopWithPrefetch+noLoadLoopBody",
-                             debugStreams);
-        addGfx1250RegionPasses(innerPM, module, optLevel, moduleOptions.EnableWaitCntInsertion,
-                               runScheduler);
-        if (moduleOptions.EnableWaitCntInsertion) {
-            innerPM.addPass(createStinkyWaitCntInsertionPass());
-        }
-        pm.addPass(createKernelToRegionsPassAdaptor(module, {"loopWithPrefetch", "noLoadLoopBody"},
-                                                    std::move(innerPM)));
-    }
+    // strip delay_alu before scheduling
+    pm.addPass(createRemoveDelayAluPass());
+    // strip wait_alu/setreg(SCHED_MODE) before scheduling
+    pm.addPass(createRemoveWaitAluPass());
 
     // -- kernel --
     pm.addPass(createInsertVgprMsbPass());
     pm.addPass(createCFGBuilderPass());
     pm.addPass(createMemTokenConsistencyCheckPass());
+    pm.addPass(createInsertWaitAluPass());
+    pm.addPass(createInsertDelayAluPass(/*minWavesPerSimd=*/2));
+
     if (optLevel != OptLevel::O0) {
-        pm.addPass(createInsertWaitAluPass());
-        pm.addPass(createInsertDelayAluPass(/*minWavesPerSimd=*/2));
         pm.addPass(createLoopRegionRemarkPass());
     }
     pm.addPass(createEstimateAsmCyclesPass());
