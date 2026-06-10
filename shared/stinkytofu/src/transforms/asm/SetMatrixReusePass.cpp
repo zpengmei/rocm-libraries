@@ -95,30 +95,38 @@ void clearMatrixReuse(StinkyInstruction& inst) {
     }
 }
 
-void applyReuseFromNext(StinkyInstruction& prev, const StinkyInstruction& next) {
+// Set matrix_a_reuse / matrix_b_reuse on `curr` if its A/B operand matches the
+// immediately-preceding matrix instruction's. The HW modifier on instruction X
+// means "X reuses the operand from the previous wmma," so it must be attached
+// to the *consumer* (curr), not the producer (prev), and must be guarded by an
+// actual predecessor existing — the first wmma in any sequence has nothing to
+// reuse from.
+void applyReuseFromPrev(const StinkyInstruction& prev, StinkyInstruction& curr) {
     const auto prevOps = getMatrixOperands(prev);
-    const auto nextOps = getMatrixOperands(next);
-    if (!prevOps || !nextOps) return;
+    const auto currOps = getMatrixOperands(curr);
+    if (!prevOps || !currOps) return;
 
-    MFMAModifiers* mod = getOrCreateMfmaModifiers(prev);
-    mod->reuseA = (*prevOps->a == *nextOps->a);
-    mod->reuseB = (*prevOps->b == *nextOps->b);
+    MFMAModifiers* mod = getOrCreateMfmaModifiers(curr);
+    mod->reuseA = (*currOps->a == *prevOps->a);
+    mod->reuseB = (*currOps->b == *prevOps->b);
 
-    PASS_DEBUG(std::cerr << "[SetMatrixReusePass] prev=" << prev.getHwInstDesc()->mnemonic
+    PASS_DEBUG(std::cerr << "[SetMatrixReusePass] curr=" << curr.getHwInstDesc()->mnemonic
                          << " reuseA=" << mod->reuseA << " reuseB=" << mod->reuseB << "\n");
 }
 
 void setMatrixReuseInFunction(Function& func) {
-    StinkyInstruction* pending = nullptr;
-
+    // Reuse tracking is per-BB: control flow between BBs invalidates the HW
+    // operand cache (or at least we can't statically prove it survives), so we
+    // never carry `prev` across a BB boundary.
     for (BasicBlock& bb : func) {
+        StinkyInstruction* prev = nullptr;
         for (auto it = bb.begin(); it != bb.end(); ++it) {
             auto* inst = dyn_cast<StinkyInstruction>(it.getNodePtr());
             if (!inst || !isMatrixInstruction(*inst)) continue;
 
             clearMatrixReuse(*inst);
-            if (pending && supportsMatrixReuse(*pending)) applyReuseFromNext(*pending, *inst);
-            pending = inst;
+            if (prev && supportsMatrixReuse(*inst)) applyReuseFromPrev(*prev, *inst);
+            prev = inst;
         }
     }
 }
