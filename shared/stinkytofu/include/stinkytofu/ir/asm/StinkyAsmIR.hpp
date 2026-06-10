@@ -445,18 +445,47 @@ inline bool isUnconditionalBranch(const StinkyInstruction& inst) {
     return isBranch(inst) && !isConditionalBranch(inst);
 }
 
-// Get the branch target label name from a branch instruction.
-// Branch instructions store their target as the first source register (LiteralString type).
-inline std::string getBranchTarget(const StinkyInstruction& inst) {
-    assert(isBranch(inst) && "Instruction must be a branch");
-    assert(!inst.getSrcRegs().empty() &&
-           "Branch instruction must have at least one source register");
+// Indirect branch: target PC comes from a register at runtime
+// (s_setpc_b64 / s_swappc_b64). Such a branch only has a statically-known
+// target label when LabelData has been stamped (rocisa converter or
+// LongBranchLoweringPass); otherwise it is opaque.
+inline bool isIndirectBranch(const StinkyInstruction& inst) {
+    return inst.is(InstFlag::IF_IndirectBranch);
+}
 
+// Structural call predicate. Only s_swappc_b64 is a call mnemonic in the tree.
+inline bool isCall(const StinkyInstruction& inst) {
+    return inst.getUnifiedOpcode() == GFX::s_swappc_b64;
+}
+
+// Label names of basic-block targets for a branch instruction.
+//
+// Resolution (first match wins):
+//   - Not a branch                       -> {}
+//   - LabelData{label}                   -> {label}  (converter / LongBranchLowering)
+//   - IF_IndirectBranch without LabelData -> {}       (opaque setpc/swappc)
+//   - First src is LiteralString         -> {string} (raw .s s_branch / s_cbranch_*)
+//   - Otherwise                          -> {}
+inline std::vector<std::string> getBranchTargets(const StinkyInstruction& inst) {
+    if (!isBranch(inst)) return {};
+
+    if (const auto* label = inst.getModifier<LabelData>()) {
+        return {label->label};
+    }
+
+    if (isIndirectBranch(inst)) return {};
+
+    if (inst.getSrcRegs().empty()) return {};
     const StinkyRegister& targetReg = inst.getSrcRegs()[0];
-    assert(targetReg.dataType == StinkyRegister::Type::LiteralString &&
-           "Branch target must be a LiteralString");
+    if (targetReg.dataType != StinkyRegister::Type::LiteralString) return {};
+    return {targetReg.getLiteralString()};
+}
 
-    return targetReg.getLiteralString();
+// Single-target shim. Returns the first label from getBranchTargets(), or ""
+// if the instruction has no statically-known branch target label.
+inline std::string getBranchTarget(const StinkyInstruction& inst) {
+    auto targets = getBranchTargets(inst);
+    return targets.empty() ? std::string{} : targets.front();
 }
 
 inline bool isWaitCnt(const StinkyInstruction& inst) {

@@ -174,10 +174,18 @@ class CFGBuilderPassImpl : public Pass {
             if (terminator) {
                 StinkyInstruction* termInst = cast<StinkyInstruction>(terminator);
                 if (isBranch(*termInst)) {
-                    // Get the branch target label using utility function
-                    std::string targetLabel = getBranchTarget(*termInst);
-                    auto targetIt = labelMap.find(targetLabel);
-                    if (targetIt != labelMap.end()) func.addEdge(&bb, targetIt->second);
+                    // Some valid indirect branches (e.g. bare s_setpc_b64 /
+                    // s_swappc_b64 without LabelData) have no statically-known
+                    // target; getBranchTargets() returns an empty set and we
+                    // simply create no branch edge. A long branch carries
+                    // LabelData (stamped by the rocisa converter or
+                    // LongBranchLoweringPass), so it resolves like a direct
+                    // branch.
+                    const auto targets = getBranchTargets(*termInst);
+                    for (const std::string& targetLabel : targets) {
+                        auto targetIt = labelMap.find(targetLabel);
+                        if (targetIt != labelMap.end()) func.addEdge(&bb, targetIt->second);
+                    }
                 }
             }
 
@@ -191,15 +199,19 @@ class CFGBuilderPassImpl : public Pass {
                     }
                 }
 
-                // Check if prevBB should fall through to current bb
-                // This happens when prevBB has no terminator or has a conditional branch
+                // Fall through when prevBB has no terminator, when its
+                // terminator is a conditional branch (may not be taken), or
+                // when it is a call (s_swappc_b64 — control returns to the next
+                // instruction after the callee returns; semantically a
+                // fall-through within the caller). Other unconditional branches
+                // (s_branch, a long-branch / return s_setpc_b64) do not fall
+                // through.
                 bool shouldFallThrough = true;
                 if (prevTerm) {
                     StinkyInstruction* prevTermInst = cast<StinkyInstruction>(prevTerm);
-                    if (isBranch(*prevTermInst)) {
-                        // Unconditional branches don't fall through
-                        // Conditional branches do fall through (when condition is false)
-                        shouldFallThrough = isConditionalBranch(*prevTermInst);
+                    if (isBranch(*prevTermInst) && !isConditionalBranch(*prevTermInst) &&
+                        !isCall(*prevTermInst)) {
+                        shouldFallThrough = false;
                     }
                 }
 
