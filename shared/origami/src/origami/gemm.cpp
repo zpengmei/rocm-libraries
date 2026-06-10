@@ -1064,7 +1064,6 @@ cache_hit_rates_t estimate_cache_hit_rates(const problem_t& problem,
   const size_t num_xcd     = hardware.NUM_XCD;
   const size_t N_CU        = hardware.N_CU;
   const double l2_cap      = static_cast<double>(hardware.L2_capacity);
-  const size_t k_per_split = context.k_per_split;
   const auto& wgm          = context.wgm;
   const bool debug         = context.debug;
   const double a_bytes     = context.a_bytes;
@@ -1098,10 +1097,7 @@ cache_hit_rates_t estimate_cache_hit_rates(const problem_t& problem,
 
   const double a_iter = a_outer * std::ceil(a_contig / cl) * cl;
   const double b_iter = b_outer * std::ceil(b_contig / cl) * cl;
-  const double a_row  = a_iter / static_cast<double>(config.mt.k);
-  const double b_row  = b_iter / static_cast<double>(config.mt.k);
-  const double a_tile = a_row * k_per_split;
-  const double b_tile = b_row * k_per_split;
+  // Per K-unroll panel bytes (matches Ld_A/Ld_B in compute_memory_latency).
 
   // ----
   // MALL
@@ -1119,14 +1115,14 @@ cache_hit_rates_t estimate_cache_hit_rates(const problem_t& problem,
     mall_tiles = count_unique_tiles_timestep(grid, wgm, N_CU, 0);
 
     // Calculate the unique bytes loaded
-    const double mall_total_a = a_temporal ? std::min(N_CU, total) * a_tile : 0.0;
-    const double mall_total_b = b_temporal ? std::min(N_CU, total) * b_tile : 0.0;
+    const double mall_total_a = a_temporal ? std::min(N_CU, total) * a_iter : 0.0;
+    const double mall_total_b = b_temporal ? std::min(N_CU, total) * b_iter : 0.0;
     const double mall_total_pb_a =
-        a_temporal ? static_cast<double>(mall_tiles.m) * mall_tiles.n * a_tile : 0.0;
+        a_temporal ? static_cast<double>(mall_tiles.m) * mall_tiles.n * a_iter : 0.0;
     const double mall_total_pb_b =
-        b_temporal ? static_cast<double>(mall_tiles.m) * mall_tiles.n * b_tile : 0.0;
-    const double mall_unique_a = a_temporal ? mall_tiles.m * a_tile : 0.0;
-    const double mall_unique_b = b_temporal ? mall_tiles.n * b_tile : 0.0;
+        b_temporal ? static_cast<double>(mall_tiles.m) * mall_tiles.n * b_iter : 0.0;
+    const double mall_unique_a = a_temporal ? mall_tiles.m * a_iter : 0.0;
+    const double mall_unique_b = b_temporal ? mall_tiles.n * b_iter : 0.0;
     const double mall_reused_a = mall_total_pb_a - mall_unique_a;
     const double mall_reused_b = mall_total_pb_b - mall_unique_b;
     const double mall_cached_a =
@@ -1162,10 +1158,10 @@ cache_hit_rates_t estimate_cache_hit_rates(const problem_t& problem,
   const size_t kb             = std::max(l2_tiles.k * l2_tiles.b, static_cast<size_t>(1));
   const size_t actual_mn      = std::min(math::safe_ceil_div(tiles_on_xcd, kb), rectangular_mn);
 
-  double l2_unique_a    = a_temporal ? l2_tiles.m * a_tile * a_cl_factor : 0.0;
-  double l2_unique_b    = b_temporal ? l2_tiles.n * b_tile * b_cl_factor : 0.0;
-  double l2_requested_a = a_temporal ? static_cast<double>(actual_mn) * a_tile : 0.0;
-  double l2_requested_b = b_temporal ? static_cast<double>(actual_mn) * b_tile : 0.0;
+  double l2_unique_a    = a_temporal ? l2_tiles.m * a_iter * a_cl_factor : 0.0;
+  double l2_unique_b    = b_temporal ? l2_tiles.n * b_iter * b_cl_factor : 0.0;
+  double l2_requested_a = a_temporal ? static_cast<double>(actual_mn) * a_iter : 0.0;
+  double l2_requested_b = b_temporal ? static_cast<double>(actual_mn) * b_iter : 0.0;
   double spatial_reuse_a =
       (l2_requested_a > 0) ? std::max(1.0 - l2_unique_a / l2_requested_a, 0.0) : 0.0;
   double spatial_reuse_b =
@@ -1186,6 +1182,52 @@ cache_hit_rates_t estimate_cache_hit_rates(const problem_t& problem,
       spatial_reuse_a *= align_factor;
       spatial_reuse_b *= align_factor;
     }
+  }
+
+  // TN / NT streaming (long operand vs skinny output): used for L2 spatial scaling below.
+  const double mn_byte_ratio =
+      (static_cast<double>(problem.size.m) * a_bytes) /
+      std::max(static_cast<double>(problem.size.n) * b_bytes, 1.0);
+  const double nm_byte_ratio =
+      (static_cast<double>(problem.size.n) * b_bytes) /
+      std::max(static_cast<double>(problem.size.m) * a_bytes, 1.0);
+  const bool streaming_a = a_trans && !b_trans && mn_byte_ratio > 5.0;
+  const bool streaming_b = !a_trans && b_trans && nm_byte_ratio > 5.0;
+
+  // Full-dimension streaming: unique operand bytes per K-unroll vs L2 capacity.
+  // Unique A/B volume along the streaming dimension for the full launch grid (one K-unroll).
+  const double a_panel = a_iter * a_cl_factor;
+  const double b_panel = b_iter * b_cl_factor;
+  if (streaming_a && grid.m > 0 && a_panel > 0.0 && l2_cap > 0.0) {
+    const double stream_unique_a = static_cast<double>(grid.m) * a_panel;
+    const double stream_residency = std::min(l2_cap / stream_unique_a, 1.0);
+    spatial_reuse_a *= stream_residency;
+  }
+  if (streaming_b && grid.n > 0 && b_panel > 0.0 && l2_cap > 0.0) {
+    const double stream_unique_b = static_cast<double>(grid.n) * b_panel;
+    const double stream_residency = std::min(l2_cap / stream_unique_b, 1.0);
+    spatial_reuse_b *= stream_residency;
+  }
+
+  // TN long-M / skinny-N grid (single K-stream): temporal A is streamed; do not credit L2 spatial
+  // reuse or MALL reuse on A (mirrors skinny_n path for B, but without L2 amplification on A).
+  const bool single_stream     = (grid.k == 1) && (grid.b == 1);
+  const bool streaming_a_skinny =
+      single_stream && streaming_a &&
+      (static_cast<double>(grid.m) > static_cast<double>(grid.n) * 8.0);
+  if (streaming_a_skinny && a_temporal) {
+    spatial_reuse_a = 0.0;
+    mall_rate_a     = 0.0;
+  }
+
+  // NT long-N / skinny-M grid (single K-stream): temporal B is streamed; do not credit L2 spatial
+  // reuse or MALL reuse on B (symmetric to streaming_a_skinny).
+  const bool streaming_b_skinny =
+      single_stream && streaming_b &&
+      (static_cast<double>(grid.n) > static_cast<double>(grid.m) * 8.0);
+  if (streaming_b_skinny && b_temporal) {
+    spatial_reuse_b = 0.0;
+    mall_rate_b     = 0.0;
   }
 
   // K-depth warmup:
