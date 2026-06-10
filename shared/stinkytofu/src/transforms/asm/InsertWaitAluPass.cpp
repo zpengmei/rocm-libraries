@@ -216,28 +216,14 @@ inline bool isWaitAluInst(const StinkyInstruction& inst) {
     return inst.getUnifiedOpcode() == GFX::s_wait_alu;
 }
 
-// TODO: replace with canonical isReturn() / isCall() helpers once they land.
-//
-// s_setpc_b64 is two things at runtime: a return (paired with a prior
-// s_swappc_b64) or an intra-function long jump. Discriminate by operand:
-// Tensile's calling convention always saves the return PC in s[26:27], so an
-// s_setpc_b64 reading s[26:27] is a return; any other src reg pair (e.g.
-// s[70:71] for a long branch built via s_getpc_b64) is an intra-function jump.
+// isReturn = kernel exit (s_endpgm). Used to drop mode2 before the wave exits.
+// Note: function-call returns (s_setpc_b64 s[26:27]) are intentionally NOT
+// handled here — mode2 is confined to the loop region and all calls run in the
+// mode0 epilogue, so the call/return path needs no mode handling at all.
 inline bool isReturn(const StinkyInstruction& inst) {
     return inst.getUnifiedOpcode() == GFX::s_endpgm;
 }
-
-inline bool isCall(const StinkyInstruction& inst) {
-    return inst.getUnifiedOpcode() == GFX::s_swappc_b64;
-}
-
-inline bool isFuncReturn(const StinkyInstruction& inst) {
-    if (inst.getUnifiedOpcode() != GFX::s_setpc_b64) return false;
-    if (inst.getNumSrcRegs() == 0) return false;
-    const auto& src = inst.getSrcReg(0);
-    if (src.dataType != StinkyRegister::Type::Register) return false;
-    return src.reg.type == RegType::S && src.reg.idx == 26 && src.reg.num == 2;
-}
+// isCall is provided by StinkyAsmIR.hpp (s_swappc_b64).
 
 // ---------------------------------------------------------------------------
 // True16 half-selectors
@@ -633,49 +619,20 @@ class InsertWaitAluPassImpl : public Pass {
             PASS_DEBUG(std::cerr << "[InsertWaitAlu]   visit " << inst->getHwInstDesc()->mnemonic
                                  << "\n");
 
-            // Function-call boundary (LLVM SIInsertWaitcnts contract):
-            //   * Caller emits no wait at the call site — Wait = AMDGPU::Waitcnt().
-            //   * Callee drains everything at its return — Wait = AllZeroWait.
-            //   * After the call, caller resets bracket state — the callee
-            //     guarantees zero in-flight on return, so post-call tracking
-            //     starts fresh.
-            // Without this, pre-call producer scores leak into post-call
-            // instructions and create phantom waits / missed barriers.
+            // Function call (s_swappc): treat as an analysis barrier — reset the
+            // scoreboard so pre-call producer scores don't leak into post-call
+            // tracking as phantom dependencies.
+            //
+            // No drain / no callee-return handling is needed: mode2 is confined
+            // to the loop region (see insertSchedModeLifecycle), and every
+            // s_swappc lives in the mode0 epilogue (GlobalWriteBatch is the sole
+            // call emitter). In mode0 the hardware auto-stalls on all hazards —
+            // caller leftovers, callee outputs, and the orphan activation body
+            // (never in RPO) are all handled by HW, so the pass needs to emit
+            // nothing around the call.
             if (isCall(*inst)) {
-                PASS_DEBUG(std::cerr << "[InsertWaitAlu]   call — reset brackets (callee drains "
-                                        "at return)\n");
-                sb.applyWaitcnt(CT_VA_VDST, 0);
-                sb.applyWaitcnt(CT_VM_VSRC, 0);
-                ++it;
-                continue;
-            }
-
-            // Function return: emit unconditional drain so callee leaves HW
-            // counters at zero. Required for the caller-side reset above to
-            // be sound. The drain is emitted in-place via emitWaitAlu
-            // (folding any adjacent hold_cnt-only survivor).
-            if (isFuncReturn(*inst)) {
-                // Unconditional both-counter drain. The callee's SW scoreboard
-                // only models its own producers, so a per-counter gate would
-                // miss caller leftovers when the callee body happens not to
-                // bump that counter. Always emitting va_vdst(0) vm_vsrc(0)
-                // makes the ABI contract structural rather than tracking-
-                // derived; a redundant field is a no-op at runtime and gets
-                // pruned by RemoveWaitAluPass if it constrains nothing.
-                Wait drain;
-                addWait(drain, CT_VA_VDST, 0);
-                addWait(drain, CT_VM_VSRC, 0);
-                PASS_DEBUG(std::cerr
-                           << "[InsertWaitAlu]   return drain s_wait_alu va_vdst=0 vm_vsrc=0\n");
-                if (emit) {
-                    int holdCnt = extractAdjacentHoldCnt(bb, inst);
-                    if (holdCnt >= 0)
-                        PASS_DEBUG(std::cerr << "[InsertWaitAlu]     fold hold_cnt=" << holdCnt
-                                             << " from adjacent survivor\n");
-                    emitWaitAlu(bb, inst, drain, holdCnt);
-                    PASS_DEBUG(std::cerr << "[InsertWaitAlu]     inserted return drain before "
-                                         << inst->getHwInstDesc()->mnemonic << "\n");
-                }
+                PASS_DEBUG(std::cerr << "[InsertWaitAlu]   call — reset brackets (mode0 epilogue, "
+                                        "HW handles hazards)\n");
                 sb.applyWaitcnt(CT_VA_VDST, 0);
                 sb.applyWaitcnt(CT_VM_VSRC, 0);
                 ++it;
@@ -761,13 +718,28 @@ class InsertWaitAluPassImpl : public Pass {
             break;
         }
         IRBase* anchor = (anchorIt == anchorBB->end()) ? nullptr : anchorIt.getNodePtr();
+        // Enable mode2 with no drain. mode0->mode2 is the only hazardous
+        // transition (once expert mode is on HW stops auto-stalling, so an
+        // in-flight VALU/VMEM-source producer would be read stale), but the
+        // anchor label_Preload_Offset_Start is the kernel entry: the wave reaches
+        // it with all DEPCTR counters at zero (nothing in flight) and the code
+        // that follows is SALU kernarg processing, so there is nothing to drain.
+        // mode2->mode0 also needs no drain, so the disables below are bare too —
+        // the whole lifecycle is drain-free. (If the anchor were ever moved past
+        // real VALU/VMEM producers, a drain would have to be restored here.)
         makeSchedModeSetreg(*anchorBB, anchor, /*value=*/2);
-        PASS_DEBUG(std::cerr << "[InsertWaitAlu]   inserted setreg(SCHED_MODE)=2 at entry bb=\""
+        PASS_DEBUG(std::cerr << "[InsertWaitAlu]   inserted setreg(SCHED_MODE)=2 at entry "
+                                "bb=\""
                              << anchorBB->getLabel() << "\"\n");
 
-        // Disable mode2 before every return / call; re-enable after every call.
-        // Walking the IR by collecting first (insertion would invalidate the
-        // forward iterator otherwise).
+        // Disable mode2 before every return and every call. We do NOT re-enable
+        // after a call: function calls only occur in the mode0 epilogue
+        // (GlobalWriteBatch is the sole s_swappc emitter), and re-enabling mode2
+        // after a call is an undrained mode0->mode2 transition — the stale-read
+        // bug. So mode2 turns off once (at the loop exit / first call) and stays
+        // off. A bare setreg 0 before each call is idempotent (mode2->mode0 is
+        // free) and robust: even if an OptNLL/GSU branch jumps straight to a call
+        // site, that call still has a setreg 0 immediately before it.
         struct Insertion {
             BasicBlock* bb;
             StinkyInstruction* anchor;
@@ -785,15 +757,91 @@ class InsertWaitAluPassImpl : public Pass {
                     bbsWithExitDisable.insert(&bb);
                 } else if (isCall(*inst)) {
                     work.push_back({&bb, inst, /*value=*/0, /*insertAfter=*/false});
-                    work.push_back({&bb, inst, /*value=*/2, /*insertAfter=*/true});
                 }
             }
         }
-        // Fall-off exit fallback: any BB with no successors that does not end
-        // in a return needs an end-of-BB disable. Covers label-scoped runs
-        // (--from-label / --to-label) where the extracted region has no
-        // s_endpgm / s_setpc_b64 but execution still leaves the function at
-        // the natural end of the last BB.
+
+        // A BB containing no real (non-pseudo) instruction is an out-of-region
+        // placeholder: CFGBuilder created it as the target of a branch whose real
+        // destination lives outside the extracted scope.
+        auto hasRealInst = [](BasicBlock& b) {
+            for (auto it = b.begin(); it != b.end(); ++it) {
+                auto* inst = dyn_cast<StinkyInstruction>(it.getNodePtr());
+                if (inst && !isPseudoInst(inst)) return true;
+            }
+            return false;
+        };
+        // A "scope-exit placeholder" is a label-only BB that CFGBuilder created
+        // as the target of a branch whose real IR lives OUTSIDE the extracted
+        // region: it has no real instructions AND no path back to real in-region
+        // content (a leaf, or a chain of label-only BBs that dead-ends). This
+        // must NOT match an in-region label-only BB that merely falls through to
+        // its real body in the next BB (e.g. label_ActivationSetPCAddrEnd,
+        // label_GW_B0_FD0_OptNLL_MB, the To_Activation_* arm targets) — those are
+        // not exits and would otherwise collect spurious mode0 disables.
+        auto isExitPlaceholder = [&](BasicBlock& start) {
+            if (hasRealInst(start)) return false;
+            std::unordered_set<BasicBlock*> seen;
+            std::vector<BasicBlock*> stack{&start};
+            while (!stack.empty()) {
+                BasicBlock* b = stack.back();
+                stack.pop_back();
+                if (!seen.insert(b).second) continue;
+                for (BasicBlock* s : b->getSuccessors()) {
+                    if (!s) continue;
+                    if (hasRealInst(*s)) return false;  // reaches real in-region code
+                    stack.push_back(s);
+                }
+            }
+            return true;  // no real in-region content reachable -> true exit
+        };
+
+        // Scope-exit via control transfer to an out-of-region target. After
+        // LongBranchLowering stamps LabelData on a long branch, CFGBuilder wires
+        // an edge to the target; if that target's real IR is outside the
+        // extracted scope it becomes an empty placeholder BB. The source BB then
+        // still has a successor, so the no-successor fallback below misses it.
+        // Detect "branch/long-branch whose successor is a true exit placeholder"
+        // and drop mode2 BEFORE the terminator so the exit path runs in mode0.
+        for (BasicBlock& bb : func) {
+            if (bbsWithExitDisable.count(&bb)) continue;
+            bool exitsRegion = false;
+            for (BasicBlock* succ : bb.getSuccessors()) {
+                if (succ && isExitPlaceholder(*succ)) {
+                    exitsRegion = true;
+                    break;
+                }
+            }
+            if (!exitsRegion) continue;
+            StinkyInstruction* tail = nullptr;
+            for (auto it = bb.begin(); it != bb.end(); ++it) {
+                auto* inst = dyn_cast<StinkyInstruction>(it.getNodePtr());
+                if (!inst || isPseudoInst(inst)) continue;
+                tail = inst;
+            }
+            if (!tail) continue;
+            // If the BB branches out (tail is a branch / long-branch), the disable
+            // must precede the terminator. If it falls through to the out-of-region
+            // placeholder (tail is an ordinary instruction), the disable goes
+            // AFTER the tail — at the very end of the BB — so that ALL incoming
+            // paths (fall-through AND any long-branch that targets this BB's label,
+            // landing after an earlier same-BB disable) flow through it before
+            // leaving the region.
+            const bool tailTransfers =
+                isBranch(*tail) || tail->getUnifiedOpcode() == GFX::s_setpc_b64;
+            work.push_back({&bb, tail, /*value=*/0, /*insertAfter=*/!tailTransfers});
+            bbsWithExitDisable.insert(&bb);
+        }
+        // Region-exit fallback: any BB with no in-region successor leaves the
+        // mode2 scope and needs a disable. Two flavors:
+        //   * exits via a control-transfer terminator — a long-branch-out
+        //     (s_setpc_b64 carrying LabelData to an out-of-region label, which
+        //     CFGBuilder gave no in-region successor) or an s_branch/s_cbranch to
+        //     an out-of-region label. The disable must go BEFORE that terminator
+        //     so it runs on the way out.
+        //   * genuine fall-off at the natural end of the region — the disable
+        //     goes after the tail.
+        // (mode2->mode0 is HW-free, so a redundant disable here is harmless.)
         for (BasicBlock& bb : func) {
             if (bbsWithExitDisable.count(&bb)) continue;
             if (!bb.getSuccessors().empty()) continue;
@@ -809,7 +857,9 @@ class InsertWaitAluPassImpl : public Pass {
                 tail = inst;
             }
             if (tail) {
-                work.push_back({&bb, tail, /*value=*/0, /*insertAfter=*/true});
+                const bool tailExits =
+                    isBranch(*tail) || tail->getUnifiedOpcode() == GFX::s_setpc_b64;
+                work.push_back({&bb, tail, /*value=*/0, /*insertAfter=*/!tailExits});
                 continue;
             }
             // Label-only trailing BB (e.g. the --to-label boundary BB in
