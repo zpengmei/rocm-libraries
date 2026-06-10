@@ -158,7 +158,8 @@ bool serializeVisit(const MUBUFModifiers& mod, std::ostream& os) {
     os << ", mod.mubuf = {";
     os << " offen = " << (mod.offen ? "true" : "false") << ", offset12 = " << mod.offset12
        << ", glc = " << (mod.glc ? "true" : "false") << ", slc = " << (mod.slc ? "true" : "false")
-       << ", nt = " << (mod.nt ? "true" : "false") << ", lds = " << (mod.lds ? "true" : "false");
+       << ", nt = " << (mod.nt ? "true" : "false") << ", lds = " << (mod.lds ? "true" : "false")
+       << ", isStore = " << (mod.isStore ? "true" : "false");
     if (mod.scope != MUBUFScope::SCOPE_NONE) {
         os << ", scope = \"" << toString(mod.scope) << "\"";
     }
@@ -434,8 +435,8 @@ void deserializeVisit(StinkyInstruction* inst, const std::string& attrKey,
         inst->addModifier(
             MUBUFModifiers(getBool(fields, "offen", false), getInt(fields, "offset12", 0),
                            getBool(fields, "glc", false), getBool(fields, "slc", false),
-                           getBool(fields, "nt", false), getBool(fields, "lds", false), false,
-                           false, false, false, scope));
+                           getBool(fields, "nt", false), getBool(fields, "lds", false),
+                           getBool(fields, "isStore", false), false, false, false, scope));
     } else if (attrKey == "mod.cache_scope") {
         inst->addModifier(CacheScopeModifiers(parseMUBUFScope(getStr(fields, "scope", ""))));
     } else if (attrKey == "mod.smem") {

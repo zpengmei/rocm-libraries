@@ -207,7 +207,10 @@ inline std::ostream& operator<<(std::ostream& os, const MUBUFModifiers& mubufMod
         os << " scope:" << toString(mubufMod.scope);
     }
     if (mubufMod.nt) {
-        os << " nt";
+        // gfx1250+ spells the non-temporal cache hint as `th:TH_<LOAD|STORE>_NT`.
+        // Emit that form so the round-trip matches the codegen-produced syntax;
+        // the legacy bare `nt` is no longer used on supported arches.
+        os << (mubufMod.isStore ? " th:TH_STORE_NT" : " th:TH_LOAD_NT");
     }
     if (mubufMod.lds) {
         os << " lds";

@@ -818,6 +818,19 @@ bool parseModifiers(IRLexer& lexer, ParsedInstruction& inst, const HwInstDesc* h
         if (fields.contains("glc") || fields.contains("sc0")) modFields["glc"] = "true";
         if (fields.contains("slc") || fields.contains("sc1")) modFields["slc"] = "true";
         if (fields.contains("nt")) modFields["nt"] = "true";
+        // gfx1250+ spells the non-temporal cache hint as `th:TH_LOAD_NT` /
+        // `th:TH_STORE_NT` instead of the legacy bare `nt`. Map both spellings
+        // to the same `nt` boolean so the existing emit path picks up the bit,
+        // and forward the load/store flavor so the emitter can pick the right
+        // form (assembler rejects TH_LOAD_NT on stores and vice versa).
+        if (auto it = fields.find("th"); it != fields.end()) {
+            if (it->second == "TH_LOAD_NT") {
+                modFields["nt"] = "true";
+            } else if (it->second == "TH_STORE_NT") {
+                modFields["nt"] = "true";
+                modFields["isStore"] = "true";
+            }
+        }
         if (fields.contains("lds")) modFields["lds"] = "true";
 
     } else if (modKey == "mod.flat") {
