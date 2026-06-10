@@ -41,6 +41,7 @@
 #include "stinkytofu/transforms/asm/InsertDelayAluPass.hpp"
 #include "stinkytofu/transforms/asm/InsertVgprMsbPass.hpp"
 #include "stinkytofu/transforms/asm/InsertWaitAluPass.hpp"
+#include "stinkytofu/transforms/asm/LongBranchLoweringPass.hpp"
 #include "stinkytofu/transforms/asm/LoopRegionRemarkPass.hpp"
 #include "stinkytofu/transforms/asm/MemTokenConsistencyCheckPass.hpp"
 #include "stinkytofu/transforms/asm/RemoveDelayAluPass.hpp"
@@ -79,9 +80,32 @@ bool buildGfx1250Pipeline(PassManager& pm, StinkyAsmModule& module) {
 
     // -- kernel --
     pm.addPass(createInsertVgprMsbPass());
+
+    // -- region: stinkyWaitScope (label_Preload_Offset_Start .. noLoadLoopBody) --
+    // Wait-alu insertion + mode2 lifecycle run scoped to the compute region only,
+    // so the epilogue (Global Write, where all activation s_swappc calls live)
+    // stays in mode0. LongBranchLowering stamps LabelData on long-branch
+    // s_setpc_b64 so the region-local CFGBuilder produces real edges (no phantom
+    // fall-through), which InsertWaitAluPass needs for correct entry-state
+    // propagation and exit-edge mode0 placement.
+    //
+    // The adaptor extracts a contiguous instruction range from the still-FLAT
+    // single-BB function, so it must run BEFORE the kernel-wide CFGBuilderPass
+    // (which splits the function into BasicBlocks). CFGBuilder runs inside the
+    // adaptor on the extracted region, and again kernel-wide afterwards for the
+    // downstream passes.
+    {
+        PassManager innerPM;
+        registerAllAnalyses(innerPM.getAnalysisManager());
+        configureDebugOutput(innerPM, moduleOptions, "stinkyWaitScope", debugStreams);
+        innerPM.addPass(createLongBranchLoweringPass());
+        innerPM.addPass(createCFGBuilderPass());
+        innerPM.addPass(createInsertWaitAluPass());
+        pm.addPass(createKernelToRegionPassAdaptor(module, "stinkyWaitScope", std::move(innerPM)));
+    }
+
     pm.addPass(createCFGBuilderPass());
     pm.addPass(createMemTokenConsistencyCheckPass());
-    pm.addPass(createInsertWaitAluPass());
     pm.addPass(createInsertDelayAluPass(/*minWavesPerSimd=*/2));
 
     if (optLevel != OptLevel::O0) {
@@ -103,7 +127,8 @@ bool buildGfx1250Pipeline(PassManager& pm, StinkyAsmModule& module) {
 struct Gfx1250Registrar {
     Gfx1250Registrar() {
         BackendRegistry::setArchPipeline(
-            GFX1250_ARCH, {buildGfx1250Pipeline, {"loopWithPrefetch", "noLoadLoopBody"}});
+            GFX1250_ARCH,
+            {buildGfx1250Pipeline, {"loopWithPrefetch", "noLoadLoopBody", "stinkyWaitScope"}});
     }
 };
 static Gfx1250Registrar s_gfx1250Registrar;

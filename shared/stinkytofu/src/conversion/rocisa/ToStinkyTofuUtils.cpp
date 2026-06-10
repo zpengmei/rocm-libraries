@@ -1029,6 +1029,29 @@ static std::shared_ptr<StinkyAsmModule> toStinkyTofuModule(
         return false;
     };
 
+    // Recursively check whether an item's subtree contains a Label with \p name.
+    std::function<bool(const rocisa::Item*, const std::string&)> containsLabel =
+        [&](const rocisa::Item* item, const std::string& name) -> bool {
+        if (const auto* lbl = dynamic_cast<const rocisa::Label*>(item))
+            return lbl->getLabelName() == name;
+        if (const auto* mod = dynamic_cast<const rocisa::Module*>(item)) {
+            for (const auto& child : mod->itemList)
+                if (containsLabel(child.get(), name)) return true;
+        }
+        return false;
+    };
+
+    // Recursively check whether an item is, or contains, a Module named \p name.
+    std::function<bool(const rocisa::Item*, const std::string&)> containsModule =
+        [&](const rocisa::Item* item, const std::string& name) -> bool {
+        if (const auto* mod = dynamic_cast<const rocisa::Module*>(item)) {
+            if (mod->name == name) return true;
+            for (const auto& child : mod->itemList)
+                if (containsModule(child.get(), name)) return true;
+        }
+        return false;
+    };
+
     // Auto-detect the loopWithPrefetch region: from the first global read or
     // tensor load item up to and including Module("loopBody").
     int pgrStartIdx = -1;
@@ -1049,13 +1072,34 @@ static std::shared_ptr<StinkyAsmModule> toStinkyTofuModule(
     const bool hasPGR = (pgrStartIdx != -1 && loopBodyIdx != -1 && pgrStartIdx <= loopBodyIdx);
     static const std::string kPGR = "loopWithPrefetch";
 
+    // Auto-detect the stinkyWaitScope region: from the top-level item whose
+    // subtree contains label_Preload_Offset_Start (kernel-body entry, before the
+    // first VGPR producer) through Module("noLoadLoopBody"). This is the region
+    // the wait-alu / mode2 ScopeAdaptor operates on — it deliberately excludes
+    // the epilogue (Global Write), where all activation calls live and which must
+    // stay in mode0.
+    int scopeStartIdx = -1;
+    int scopeEndIdx = -1;
+    for (int i = 0; i < static_cast<int>(module.itemList.size()); ++i) {
+        const auto& item = module.itemList[i];
+        if (scopeStartIdx == -1 && containsLabel(item.get(), "label_Preload_Offset_Start")) {
+            scopeStartIdx = i;
+        }
+        if (containsModule(item.get(), "noLoadLoopBody")) scopeEndIdx = i;
+    }
+    const bool hasScope =
+        (scopeStartIdx != -1 && scopeEndIdx != -1 && scopeStartIdx <= scopeEndIdx);
+    static const std::string kScope = "stinkyWaitScope";
+
     // Traverse top-level items, injecting the loopWithPrefetch group name
     // for items in the detected prefetch region [pgrStartIdx, loopBodyIdx].
     for (int i = 0; i < static_cast<int>(module.itemList.size()); ++i) {
         const auto& item = module.itemList[i];
         const bool inPGR = hasPGR && (i >= pgrStartIdx && i <= loopBodyIdx);
+        const bool inScope = hasScope && (i >= scopeStartIdx && i <= scopeEndIdx);
 
         std::vector<const std::string*> base;
+        if (inScope) base.push_back(&kScope);
         if (inPGR) base.push_back(&kPGR);
         base.push_back(&module.name);
 
