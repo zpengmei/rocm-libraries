@@ -1,0 +1,309 @@
+// Copyright © Advanced Micro Devices, Inc., or its affiliates.
+// SPDX-License-Identifier: MIT
+
+#include <gtest/gtest.h>
+
+#include <hipdnn_frontend/Graph.hpp>
+#include <hipdnn_frontend/autotune/AutotuneTypes.hpp>
+#include <hipdnn_frontend/autotune/BenchmarkStatistics.hpp>
+#include <hipdnn_frontend/autotune/TimedRunLoop.hpp>
+
+#include <algorithm>
+#include <cmath>
+#include <string>
+#include <unordered_map>
+#include <vector>
+
+using namespace hipdnn_frontend;
+using namespace hipdnn_frontend::autotune;
+
+// NOTE (Decision D): BenchmarkingKnobNameIsGlobalBenchmarking (rocmlibs1 26-29) is
+// DROPPED — KnobConstants.hpp / BENCHMARKING_KNOB_NAME is not ported (plan-spec path).
+// MaxWorkspaceEmptyPlanSpecs (35-46) and EngineConfigInfoDefaults (222-230) are DROPPED
+// (plan-spec types OOS). CustomRankingByAvgTime (173-204) is DROPPED (member 9 OOS;
+// exercises no production code).
+//
+// The ConfigValidation*/MaxIterations* tests below were AS-IS in rocmlibs1 but called
+// the OOS Tier-2 (workspaceSize) overload `autotune(h, pack, ws, int64_t, config)`. The
+// subset excludes that overload, so each is adapted to the in-scope Tier-1 overload
+// `autotune(h, pack, ws, config)`. Config validation fires in the autotuneImpl prologue
+// BEFORE the handle/graph checks, so the asserted error message is unchanged.
+
+// ============================================================================
+// AutotuneConfig Validation Tests
+// ============================================================================
+
+TEST(TestAutotune, ConfigDefaultsAreValid)
+{
+    const AutotuneConfig config;
+
+    // Verify defaults (members 1-7; members 8-10 are out of the subset).
+    EXPECT_EQ(config.mode, TuneMode::AUTO);
+    EXPECT_EQ(config.strategy, AutotuneStrategy::RUN_UNTIL_STABLE);
+    EXPECT_EQ(config.warmupIterations, 1);
+    EXPECT_EQ(config.timedIterations, 10);
+    EXPECT_EQ(config.maxIterations, 100);
+    EXPECT_EQ(config.windowSize, 3);
+    EXPECT_FLOAT_EQ(config.stabilityThreshold, 0.05f);
+}
+
+TEST(TestAutotune, ConfigValidationNegativeWarmup)
+{
+    hipdnn_frontend::graph::Graph g;
+    AutotuneConfig config;
+    config.warmupIterations = -1;
+
+    // Config validation in autotuneImpl fires before handle/graph checks,
+    // so we can pass a null handle and empty compiled plans.
+    const std::unordered_map<int64_t, void*> variantPack = {{0, nullptr}};
+    auto err = g.autotune(nullptr, variantPack, nullptr, config);
+    EXPECT_TRUE(err.is_bad());
+    EXPECT_NE(err.get_message().find("warmupIterations"), std::string::npos);
+}
+
+TEST(TestAutotune, ConfigValidationNegativeTimedIterations)
+{
+    hipdnn_frontend::graph::Graph g;
+    AutotuneConfig config;
+    config.timedIterations = 0; // Must be >= 1
+
+    const std::unordered_map<int64_t, void*> variantPack = {{0, nullptr}};
+    auto err = g.autotune(nullptr, variantPack, nullptr, config);
+    EXPECT_TRUE(err.is_bad());
+    EXPECT_NE(err.get_message().find("timedIterations"), std::string::npos);
+}
+
+TEST(TestAutotune, ConfigValidationWindowSizeTooSmall)
+{
+    hipdnn_frontend::graph::Graph g;
+    AutotuneConfig config;
+    config.windowSize = 1; // Must be >= 2
+
+    const std::unordered_map<int64_t, void*> variantPack = {{0, nullptr}};
+    auto err = g.autotune(nullptr, variantPack, nullptr, config);
+    EXPECT_TRUE(err.is_bad());
+    EXPECT_NE(err.get_message().find("windowSize"), std::string::npos);
+}
+
+TEST(TestAutotune, ConfigValidationStabilityThresholdOutOfBounds)
+{
+    hipdnn_frontend::graph::Graph g;
+    const std::unordered_map<int64_t, void*> variantPack = {{0, nullptr}};
+
+    // Must be in (0.0, 1.0) exclusive
+    {
+        AutotuneConfig config;
+        config.stabilityThreshold = 0.0f;
+        auto err = g.autotune(nullptr, variantPack, nullptr, config);
+        EXPECT_TRUE(err.is_bad());
+        EXPECT_NE(err.get_message().find("stabilityThreshold"), std::string::npos);
+    }
+    {
+        AutotuneConfig config;
+        config.stabilityThreshold = 1.0f;
+        auto err = g.autotune(nullptr, variantPack, nullptr, config);
+        EXPECT_TRUE(err.is_bad());
+        EXPECT_NE(err.get_message().find("stabilityThreshold"), std::string::npos);
+    }
+    {
+        AutotuneConfig config;
+        config.stabilityThreshold = -0.5f;
+        auto err = g.autotune(nullptr, variantPack, nullptr, config);
+        EXPECT_TRUE(err.is_bad());
+        EXPECT_NE(err.get_message().find("stabilityThreshold"), std::string::npos);
+    }
+}
+
+// ============================================================================
+// AutotuneResult Default State Tests
+// ============================================================================
+
+TEST(TestAutotune, AutotuneResultDefaultState)
+{
+    const AutotuneResult result;
+
+    EXPECT_EQ(result.engineId, -1);
+    EXPECT_TRUE(result.engineName.empty());
+    EXPECT_TRUE(result.knobSettings.empty());
+    EXPECT_EQ(result.rank, -1);
+    EXPECT_FLOAT_EQ(result.minTimeMs, 0.0f);
+    EXPECT_FLOAT_EQ(result.avgTimeMs, 0.0f);
+    EXPECT_FLOAT_EQ(result.stddevMs, 0.0f);
+    EXPECT_EQ(result.iterationsRun, 0);
+    EXPECT_FALSE(result.succeeded);
+    EXPECT_EQ(result.modeUsed, TuneMode::AUTO);
+    EXPECT_FALSE(result.converged);
+    EXPECT_EQ(result.workspaceSize, 0);
+    EXPECT_FALSE(result.ranExhaustive);
+    EXPECT_TRUE(result.errorMessage.empty());
+    EXPECT_EQ(result.strategyUsed, AutotuneStrategy::RUN_UNTIL_STABLE);
+}
+
+// ============================================================================
+// AutotuneStorageConfig Tests
+// ============================================================================
+
+TEST(TestAutotune, StorageConfigDefaults)
+{
+    const AutotuneStorageConfig config;
+
+    EXPECT_TRUE(config.filePath.empty());
+    EXPECT_FALSE(config.deleteAllExistingFileContent);
+}
+
+// ============================================================================
+// Timed-run loop tests (FIXED_AVERAGE / RUN_UNTIL_STABLE)
+//
+// These drive the real production loop helpers (runUntilStable /
+// runFixedAverage) with a scripted timing sequence, replacing the prior cases
+// that re-implemented the convergence gating inline against literal arrays.
+// Fixed params: windowSize=3, stabilityThreshold=0.05, maxIterations=10. Every
+// row asserts an EXACT iteration count so an off-by-one in the window slice
+// cannot pass.
+// ============================================================================
+
+namespace
+{
+// A scripted timing source: returns the next value from a fixed sequence,
+// optionally returning a bad Error on a designated iteration to exercise the
+// failure path.
+struct ScriptedTimer
+{
+    std::vector<float> values;
+    int failOnIteration = -1; // 0-based; -1 = never fail
+    int callCount = 0;
+
+    Error operator()(float& elapsed)
+    {
+        if(callCount == failOnIteration)
+        {
+            ++callCount;
+            return {ErrorCode::HIPDNN_BACKEND_ERROR, "scripted failure"};
+        }
+        elapsed = values[static_cast<size_t>(callCount) % values.size()];
+        ++callCount;
+        return {ErrorCode::OK, ""};
+    }
+};
+
+constexpr int WINDOW_SIZE = 3;
+constexpr float STABILITY_THRESHOLD = 0.05f;
+constexpr int MAX_ITERATIONS = 10;
+
+auto noopRunUntilStableLog = [](int, float, float, bool) {};
+auto noopFixedAverageLog = [](int, float) {};
+} // namespace
+
+TEST(TestAutotune, RunUntilStableConvergesAndExitsEarly)
+{
+    ScriptedTimer timer{{10.0f}, -1, 0};
+    auto outcome = runUntilStable(
+        MAX_ITERATIONS, WINDOW_SIZE, STABILITY_THRESHOLD, timer, noopRunUntilStableLog);
+    EXPECT_TRUE(outcome.converged);
+    EXPECT_FALSE(outcome.benchmarkFailed);
+    EXPECT_EQ(static_cast<int>(outcome.timings.size()), 3);
+}
+
+TEST(TestAutotune, RunUntilStableNeverConvergesHitsCap)
+{
+    // Alternating values keep the trailing-window CoV above the threshold.
+    ScriptedTimer timer{{10.0f, 20.0f}, -1, 0};
+    auto outcome = runUntilStable(
+        MAX_ITERATIONS, WINDOW_SIZE, STABILITY_THRESHOLD, timer, noopRunUntilStableLog);
+    EXPECT_FALSE(outcome.converged);
+    EXPECT_FALSE(outcome.benchmarkFailed);
+    EXPECT_EQ(static_cast<int>(outcome.timings.size()), MAX_ITERATIONS);
+}
+
+TEST(TestAutotune, RunUntilStableConvergesLate)
+{
+    // First window {5,9,5} is noisy; later window {10,10,10} converges at iter 6.
+    ScriptedTimer timer{{5.0f, 9.0f, 5.0f, 10.0f, 10.0f, 10.0f}, -1, 0};
+    auto outcome = runUntilStable(
+        MAX_ITERATIONS, WINDOW_SIZE, STABILITY_THRESHOLD, timer, noopRunUntilStableLog);
+    EXPECT_TRUE(outcome.converged);
+    EXPECT_EQ(static_cast<int>(outcome.timings.size()), 6);
+}
+
+TEST(TestAutotune, RunUntilStableFailureMidLoopBreaks)
+{
+    // Fail on iteration index 3 (the 4th call): 3 timings recorded, loop broke.
+    // Use an alternating sequence so the first trailing window {10,20,10} has a
+    // high CoV and does NOT converge before the designated failure iteration —
+    // a constant sequence would converge at iter 2 and never reach the failure.
+    ScriptedTimer timer{{10.0f, 20.0f}, 3, 0};
+    auto outcome = runUntilStable(
+        MAX_ITERATIONS, WINDOW_SIZE, STABILITY_THRESHOLD, timer, noopRunUntilStableLog);
+    EXPECT_TRUE(outcome.benchmarkFailed);
+    EXPECT_EQ(static_cast<int>(outcome.timings.size()), 3);
+    EXPECT_NE(outcome.errorMessage.find("scripted failure"), std::string::npos);
+}
+
+TEST(TestAutotune, RunFixedAverageRunsAllIterations)
+{
+    ScriptedTimer timer{{7.0f, 8.0f, 9.0f}, -1, 0};
+    auto outcome = runFixedAverage(/*timedIterations=*/10, timer, noopFixedAverageLog);
+    EXPECT_TRUE(outcome.converged);
+    EXPECT_FALSE(outcome.benchmarkFailed);
+    EXPECT_EQ(static_cast<int>(outcome.timings.size()), 10);
+}
+
+// ============================================================================
+// maxIterations >= windowSize validation for RUN_UNTIL_STABLE
+// ============================================================================
+
+TEST(TestAutotune, MaxIterationsLessThanWindowSizeIsDetectable)
+{
+    hipdnn_frontend::graph::Graph g;
+    AutotuneConfig config;
+    config.strategy = AutotuneStrategy::RUN_UNTIL_STABLE;
+    config.maxIterations = 3;
+    config.windowSize = 5;
+
+    const std::unordered_map<int64_t, void*> variantPack = {{0, nullptr}};
+    auto err = g.autotune(nullptr, variantPack, nullptr, config);
+    EXPECT_TRUE(err.is_bad());
+    EXPECT_NE(err.get_message().find("maxIterations"), std::string::npos);
+}
+
+TEST(TestAutotune, MaxIterationsEqualToWindowSizeIsValid)
+{
+    AutotuneConfig config;
+    config.strategy = AutotuneStrategy::RUN_UNTIL_STABLE;
+    config.maxIterations = 5;
+    config.windowSize = 5;
+
+    EXPECT_GE(config.maxIterations, config.windowSize);
+}
+
+TEST(TestAutotune, MaxIterationsCheckOnlyForRunUntilStable)
+{
+    // For FIXED_AVERAGE, maxIterations < windowSize should not be an error.
+    // Config validation in autotuneImpl only checks maxIterations vs windowSize
+    // for RUN_UNTIL_STABLE, so FIXED_AVERAGE with maxIterations < windowSize
+    // should pass config validation and fail later on a different check.
+    hipdnn_frontend::graph::Graph g;
+    AutotuneConfig config;
+    config.strategy = AutotuneStrategy::FIXED_AVERAGE;
+    config.maxIterations = 3;
+    config.windowSize = 5;
+
+    const std::unordered_map<int64_t, void*> variantPack = {{0, nullptr}};
+    auto err = g.autotune(nullptr, variantPack, nullptr, config);
+    // FIXED_AVERAGE must pass the maxIterations>=windowSize validation (that
+    // gate is RUN_UNTIL_STABLE-only). The call still fails for an unrelated
+    // reason (null handle), but the error must NOT be the maxIterations check.
+    EXPECT_EQ(err.get_message().find("maxIterations"), std::string::npos)
+        << "FIXED_AVERAGE must not trigger the maxIterations validation: " << err.get_message();
+}
+
+// ============================================================================
+// AutotuneResult New Fields Tests
+// ============================================================================
+
+TEST(TestAutotune, AutotuneResultDefaultStrategy)
+{
+    const AutotuneResult result;
+
+    EXPECT_EQ(result.strategyUsed, AutotuneStrategy::RUN_UNTIL_STABLE);
+}

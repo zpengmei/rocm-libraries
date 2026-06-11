@@ -123,5 +123,8 @@ add_test_plugin(${TEST_EMPTY_NAME_HEURISTIC_PLUGIN_NAME} TestEmptyNameHeuristicP
 add_test_plugin(${TEST_DUPLICATE_POLICY_ID_A_PLUGIN_NAME} TestDuplicatePolicyIdAPlugin.cpp)
 add_test_plugin(${TEST_DUPLICATE_POLICY_ID_B_PLUGIN_NAME} TestDuplicatePolicyIdBPlugin.cpp)
 
+# test_autotune_plugin: 4 engines (A/B/C/Fails) for the autotune integration tests
+add_test_plugin(${TEST_AUTOTUNE_PLUGIN_NAME} TestAutotunePlugin.cpp)
+
 # Plugin names are exported via cmake/TestPluginNames.cmake; no PARENT_SCOPE
 # re-export needed.
