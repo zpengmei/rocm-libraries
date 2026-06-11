@@ -31,10 +31,10 @@ bool SampleRunner::operator()(const TensorLayout& layout)
               << inputType << " [" << layout << "]"
               << (config.cpuValidation ? " (with CPU validation)" : "") << "...\n";
 
-    int64_t n = 16; // BATCH SIZE
-    int64_t c = 16; // CHANNELS (FEATURES)
-    int64_t h = 16; // HEIGHT (SPATIAL DIMENSION)
-    int64_t w = 16; // WIDTH (SPATIAL DIMENSION)
+    auto n = config.dims.size() > 0 ? config.dims[0] : 16; // BATCH SIZE
+    auto c = config.dims.size() > 1 ? config.dims[1] : 16; // CHANNELS (FEATURES)
+    auto h = config.dims.size() > 2 ? config.dims[2] : 16; // HEIGHT (SPATIAL DIMENSION)
+    auto w = config.dims.size() > 3 ? config.dims[3] : 16; // WIDTH (SPATIAL DIMENSION)
 
     auto graph = std::make_shared<graph::Graph>();
     graph->set_io_data_type(inputType)
@@ -67,7 +67,7 @@ bool SampleRunner::operator()(const TensorLayout& layout)
     activatedY->set_name("activated_y");
     activatedY->set_output(true);
 
-    HIPDNN_FE_CHECK_SKIPPABLE(graph->build(handle));
+    HIPDNN_FE_CHECK(graph->build(handle));
     std::cout << "Graph build successful.\n";
 
     // Allocate tensors
@@ -135,6 +135,7 @@ bool SampleRunner::operator()(const TensorLayout& layout)
 
         auto tolerance = hipdnn_test_sdk::utilities::batchnorm::getToleranceInferenceWithVariance<
             OutputType>();
+
         auto yValidator = hipdnn_test_sdk::utilities::CpuFpReferenceValidation<OutputType>(
             tolerance, tolerance);
 
@@ -159,6 +160,7 @@ bool SampleRunner::operator()(const TensorLayout& layout)
     std::cout << "\nBatch normalization inference with variance + activation graph execution "
                  "complete for "
               << inputType << ".\n\n";
+
     return validationPassed;
 }
 
@@ -169,7 +171,7 @@ int main(int argc, char* argv[])
     auto [handle, handleError] = createHipdnnHandle();
     HIPDNN_FE_CHECK(handleError);
 
-    bool allPassed = run(SampleRunner{*handle, config});
+    bool allPassed = run(SampleRunner{*handle, config}, config);
 
     if(allPassed)
     {

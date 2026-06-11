@@ -28,28 +28,33 @@ bool SampleRunner::operator()(const TensorLayout& layout)
     std::cout << "Running fused convolution fprop + activ graph " << inputType << " [" << layout
               << "]" << (config.cpuValidation ? " (with CPU validation)" : "") << "...\n";
 
-    constexpr int64_t n = 16; // Batch size
+    auto n = config.dims.size() > 0 ? config.dims[0] : 16;
+    auto c = config.dims.size() > 1 ? config.dims[1] : 16;
+    auto h = config.dims.size() > 2 ? config.dims[2] : 16;
+    auto w = config.dims.size() > 3 ? config.dims[3] : 16;
 
-    // Input
-    constexpr int64_t c = 16; // Number of input (x) channels
-    constexpr int64_t h = 16; // Height
-    constexpr int64_t w = 16; // Width
+    auto k = config.filter.size() > 0 ? config.filter[0] : 16;
+    auto r = config.filter.size() > 0 ? config.filter[0] : 3;
+    auto s = config.filter.size() > 1 ? config.filter[1] : 3;
 
-    // Filter
-    constexpr int64_t k = 16; // Number of output (y) channels
-    constexpr int64_t r = 3; // Height
-    constexpr int64_t s = 3; // Width
-    constexpr int64_t u = 1; // Height stride
-    constexpr int64_t v = 1; // Width stride
-    constexpr int64_t padH = 1; // Height padding
-    constexpr int64_t padW = 1; // Width padding
-    constexpr int64_t dilH = 1; // Height dilation
-    constexpr int64_t dilW = 1; // Width dilation
+    auto u = config.stride.size() > 0 ? config.stride[0] : 1;
+    auto v = config.stride.size() > 1 ? config.stride[1] : 1;
+
+    auto padH = config.padding.size() > 0 ? config.padding[0] : 1;
+    auto padW = config.padding.size() > 1 ? config.padding[1] : 1;
+
+    auto dilH = config.dilation.size() > 0 ? config.dilation[0] : 1;
+    auto dilW = config.dilation.size() > 1 ? config.dilation[1] : 1;
 
     auto graph = std::make_shared<graph::Graph>();
     graph->set_io_data_type(inputType)
         .set_compute_data_type(hipdnn_frontend::DataType::FLOAT)
         .set_intermediate_data_type(hipdnn_frontend::DataType::FLOAT);
+
+    if(config.engine_id != -1)
+    {
+        graph->set_preferred_engine_id_ext(config.engine_id);
+    }
 
     auto xAttr = createTensor({n, c, h, w}, inputType, layout);
     auto wAttr = createTensor({k, c, r, s}, inputType, layout);
@@ -65,13 +70,14 @@ bool SampleRunner::operator()(const TensorLayout& layout)
 
     graph::PointwiseAttributes pointwiseAttributes;
     pointwiseAttributes.set_mode(hipdnn_frontend::PointwiseMode::RELU_FWD);
-    // Set values to clamp between 0.2 - 0.7
     pointwiseAttributes.set_relu_lower_clip(0.2f);
     pointwiseAttributes.set_relu_upper_clip(0.7f);
+
     auto pointwiseOutAttr = graph->pointwise(yAttr, pointwiseAttributes);
     pointwiseOutAttr->set_output(true);
 
-    HIPDNN_FE_CHECK_SKIPPABLE(graph->build(handle));
+    HIPDNN_FE_CHECK(graph->build(handle));
+
     std::cout << "Graph build successful.\n";
 
     utilities::Tensor<InputType> xTensor(xAttr->get_dim(), layout);
@@ -130,6 +136,7 @@ bool SampleRunner::operator()(const TensorLayout& layout)
             = hipdnn_test_sdk::utilities::CpuFpReferenceValidation<InputType>(tolerance, tolerance);
 
         std::cout << "CPU reference validation:\n";
+
         bool outValid
             = hipdnn_test_sdk::utilities::validateAndReport<InputType>(std::cout,
                                                                        "pointwise out",
@@ -144,6 +151,7 @@ bool SampleRunner::operator()(const TensorLayout& layout)
 
     std::cout << "Fused Convolution fprop + Activ graph execution complete for " << inputType
               << ".\n\n";
+
     return validationPassed;
 }
 
@@ -154,7 +162,7 @@ int main(int argc, char* argv[])
     auto [handle, handleError] = createHipdnnHandle();
     HIPDNN_FE_CHECK(handleError);
 
-    bool allPassed = run(SampleRunner{*handle, config});
+    bool allPassed = run(SampleRunner{*handle, config}, config);
 
     if(allPassed)
     {

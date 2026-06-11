@@ -37,10 +37,10 @@ bool SampleRunner::operator()(const TensorLayout& layout)
         std::cout << " [BATCH_STATS_ONLY mode]...\n";
     }
 
-    int64_t n = 16; // BATCH SIZE
-    int64_t c = 16; // CHANNELS (FEATURES)
-    int64_t h = 16; // HEIGHT (SPATIAL DIMENSION)
-    int64_t w = 16; // WIDTH (SPATIAL DIMENSION)
+    auto n = config.dims.size() > 0 ? config.dims[0] : 16; // BATCH SIZE
+    auto c = config.dims.size() > 1 ? config.dims[1] : 16; // CHANNELS (FEATURES)
+    auto h = config.dims.size() > 2 ? config.dims[2] : 16; // HEIGHT (SPATIAL DIMENSION)
+    auto w = config.dims.size() > 3 ? config.dims[3] : 16; // WIDTH (SPATIAL DIMENSION)
 
     auto graph = std::make_shared<graph::Graph>();
     graph->set_io_data_type(inputType)
@@ -102,7 +102,7 @@ bool SampleRunner::operator()(const TensorLayout& layout)
         nextRunningVariance->set_output(true).set_data_type(intermediateType);
     }
 
-    HIPDNN_FE_CHECK_SKIPPABLE(graph->build(handle));
+    HIPDNN_FE_CHECK(graph->build(handle));
     std::cout << "Graph build successful.\n";
 
     // Allocate tensors for BATCH_STATS_ONLY mode
@@ -321,7 +321,7 @@ int main(int argc, char* argv[])
     auto [handle, handleError] = createHipdnnHandle();
     HIPDNN_FE_CHECK(handleError);
 
-    bool allPassed = run(SampleRunner{*handle, config});
+    bool allPassed = run(SampleRunner{*handle, config}, config);
 
     if(allPassed)
     {

@@ -26,30 +26,34 @@ bool SampleRunner::operator()(const TensorLayout& layout)
     std::cout << "Running convolution backward weights graph " << inputType << " [" << layout << "]"
               << (config.cpuValidation ? " (with CPU validation)" : "") << "...\n";
 
-    constexpr int64_t n = 16; // Batch size
+    auto n = config.dims.size() > 0 ? config.dims[0] : 16;
+    auto c = config.dims.size() > 1 ? config.dims[1] : 16;
+    auto h = config.dims.size() > 2 ? config.dims[2] : 16;
+    auto w = config.dims.size() > 3 ? config.dims[3] : 16;
 
-    // Input (x dimensions)
-    constexpr int64_t c = 16; // Number of input channels
-    constexpr int64_t h = 16; // Height
-    constexpr int64_t w = 16; // Width
+    auto k = config.filter.size() > 0 ? config.filter[0] : 16;
+    auto r = config.filter.size() > 0 ? config.filter[0] : 3;
+    auto s = config.filter.size() > 1 ? config.filter[1] : 3;
 
-    // Filter (dw dimensions)
-    constexpr int64_t k = 16; // Number of output channels
-    constexpr int64_t r = 3; // Filter height
-    constexpr int64_t s = 3; // Filter width
-    constexpr int64_t u = 1; // Height stride
-    constexpr int64_t v = 1; // Width stride
-    constexpr int64_t padH = 1; // Height padding
-    constexpr int64_t padW = 1; // Width padding
-    constexpr int64_t dilH = 1; // Height dilation
-    constexpr int64_t dilW = 1; // Width dilation
+    auto u = config.stride.size() > 0 ? config.stride[0] : 1;
+    auto v = config.stride.size() > 1 ? config.stride[1] : 1;
 
-    // Output gradient (dy dimensions) - computed based on input and conv parameters
+    auto padH = config.padding.size() > 0 ? config.padding[0] : 1;
+    auto padW = config.padding.size() > 1 ? config.padding[1] : 1;
+
+    auto dilH = config.dilation.size() > 0 ? config.dilation[0] : 1;
+    auto dilW = config.dilation.size() > 1 ? config.dilation[1] : 1;
+
     const int64_t outH = (h + 2 * padH - dilH * (r - 1) - 1) / u + 1;
     const int64_t outW = (w + 2 * padW - dilW * (s - 1) - 1) / v + 1;
 
     auto graph = std::make_shared<graph::Graph>();
     graph->set_io_data_type(inputType).set_compute_data_type(hipdnn_frontend::DataType::FLOAT);
+
+    if(config.engine_id != -1)
+    {
+        graph->set_preferred_engine_id_ext(config.engine_id);
+    }
 
     auto dyAttr = createTensor({n, k, outH, outW}, inputType, layout);
     auto xAttr = createTensor({n, c, h, w}, inputType, layout);
@@ -64,7 +68,8 @@ bool SampleRunner::operator()(const TensorLayout& layout)
     auto dwAttr = graph->conv_wgrad(dyAttr, xAttr, convAttributes);
     dwAttr->set_output(true);
 
-    HIPDNN_FE_CHECK_SKIPPABLE(graph->build(handle));
+    HIPDNN_FE_CHECK(graph->build(handle));
+
     std::cout << "Graph build successful.\n";
 
     utilities::Tensor<InputType> dyTensor(dyAttr->get_dim(), layout);
@@ -111,12 +116,14 @@ bool SampleRunner::operator()(const TensorLayout& layout)
         auto absoluteTolerance = hipdnn_test_sdk::utilities::conv::
             calculateConvWrwTolerance<InputType, InputType, float>(
                 0.0, 1.0, 0.0, 1.0, dyAttr->get_dim());
+
         constexpr float relativeTolerance = 0.01f;
 
         auto dwValidator = hipdnn_test_sdk::utilities::CpuFpReferenceValidation<InputType>(
             absoluteTolerance, relativeTolerance);
 
         std::cout << "CPU reference validation:\n";
+
         bool dwValid = hipdnn_test_sdk::utilities::validateAndReport<InputType>(std::cout,
                                                                                 "dw",
                                                                                 dwValidator,
@@ -130,6 +137,7 @@ bool SampleRunner::operator()(const TensorLayout& layout)
 
     std::cout << "Convolution backward weights graph execution complete for " << inputType
               << ".\n\n";
+
     return validationPassed;
 }
 
@@ -140,7 +148,7 @@ int main(int argc, char* argv[])
     auto [handle, handleError] = createHipdnnHandle();
     HIPDNN_FE_CHECK(handleError);
 
-    bool allPassed = run(SampleRunner{*handle, config});
+    bool allPassed = run(SampleRunner{*handle, config}, config);
 
     if(allPassed)
     {

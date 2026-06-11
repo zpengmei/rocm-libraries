@@ -30,10 +30,10 @@ bool SampleRunner::operator()(const TensorLayout& layout)
               << inputType << " [" << layout << "]"
               << (config.cpuValidation ? " (with CPU validation)" : "") << "...\n";
 
-    int64_t n = 1; // Batch size
-    int64_t c = 3; // Channels
-    int64_t h = 14; // Height
-    int64_t w = 14; // Width
+    auto n = config.dims.size() > 0 ? config.dims[0] : 1; // Batch size
+    auto c = config.dims.size() > 1 ? config.dims[1] : 3; // Channels
+    auto h = config.dims.size() > 2 ? config.dims[2] : 14; // Height
+    auto w = config.dims.size() > 3 ? config.dims[3] : 14; // Width
 
     auto graph = std::make_shared<graph::Graph>();
     graph->set_io_data_type(inputType)
@@ -83,7 +83,7 @@ bool SampleRunner::operator()(const TensorLayout& layout)
     dbias->set_data_type(intermediateType);
     dbias->set_output(true);
 
-    HIPDNN_FE_CHECK_SKIPPABLE(graph->build(handle));
+    HIPDNN_FE_CHECK(graph->build(handle));
     std::cout << "Graph build successful.\n";
 
     // Create tensors for execution
@@ -230,7 +230,7 @@ int main(int argc, char* argv[])
     auto [handle, handleError] = createHipdnnHandle();
     HIPDNN_FE_CHECK(handleError);
 
-    bool allPassed = run(SampleRunner{*handle, config});
+    bool allPassed = run(SampleRunner{*handle, config}, config);
 
     if(allPassed)
     {

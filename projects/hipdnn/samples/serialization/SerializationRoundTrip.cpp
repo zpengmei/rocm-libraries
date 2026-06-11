@@ -166,7 +166,7 @@ bool SampleRunner::operator()(const TensorLayout& layout)
     yAttrOrig->set_name("y");
     yAttrOrig->set_output(true);
 
-    HIPDNN_FE_CHECK_SKIPPABLE(originalGraph.build(handle));
+    HIPDNN_FE_CHECK(originalGraph.build(handle));
 
     utilities::Tensor<InputType> yOriginal(yAttrOrig->get_dim(), layout);
     yOriginal.fillWithValue(static_cast<InputType>(0.0f));
@@ -197,7 +197,7 @@ int main(int argc, char* argv[])
     auto [handle, handleError] = createHipdnnHandle();
     HIPDNN_FE_CHECK(handleError);
 
-    bool allPassed = run(SampleRunner{*handle, config});
+    bool allPassed = run(SampleRunner{*handle, config}, config);
 
     if(allPassed)
     {
