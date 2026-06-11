@@ -1,6 +1,7 @@
 // Copyright © Advanced Micro Devices, Inc., or its affiliates.
 // SPDX-License-Identifier:  MIT
 
+#include <cstdio>
 #include <iostream>
 #include <string>
 #include <unordered_map>
@@ -30,7 +31,7 @@ bool SampleRunner::operator()(const TensorLayout& layout)
               << " [" << layout << "]" << (config.cpuValidation ? " (with CPU validation)" : "")
               << "...\n";
 
-    auto n = config.dims.size() > 0 ? config.dims[0] : 16; // BATCH SIZE
+    auto n = !config.dims.empty() ? config.dims[0] : 16; // BATCH SIZE
     auto c = config.dims.size() > 1 ? config.dims[1] : 16; // CHANNELS (FEATURES)
     auto h = config.dims.size() > 2 ? config.dims[2] : 16; // HEIGHT (SPATIAL DIMENSION)
     auto w = config.dims.size() > 3 ? config.dims[3] : 16; // WIDTH (SPATIAL DIMENSION)
@@ -91,9 +92,9 @@ bool SampleRunner::operator()(const TensorLayout& layout)
     variantPack[invVariance->get_uid()] = invVarianceTensor.memory().deviceData();
     variantPack[activatedY->get_uid()] = activatedYTensor.memory().deviceData();
 
-    int64_t workspaceSize;
+    int64_t workspaceSize = 0;
     HIPDNN_FE_CHECK(graph->get_workspace_size(workspaceSize));
-    utilities::Workspace workspace(static_cast<size_t>(workspaceSize));
+    const utilities::Workspace workspace(static_cast<size_t>(workspaceSize));
 
     HIPDNN_FE_CHECK(graph->execute(handle, variantPack, workspace.get()));
 
@@ -110,19 +111,19 @@ bool SampleRunner::operator()(const TensorLayout& layout)
         utilities::Tensor<OutputType> activatedYRefTensor(activatedY->get_dim(), layout);
 
         // Build variant pack for CPU execution (using host pointers)
-        std::unordered_map<int64_t, void*> cpuVariantPack;
-        cpuVariantPack[x->get_uid()] = xTensor.memory().hostData();
-        cpuVariantPack[scale->get_uid()] = scaleTensor.memory().hostData();
-        cpuVariantPack[bias->get_uid()] = biasTensor.memory().hostData();
-        cpuVariantPack[mean->get_uid()] = meanTensor.memory().hostData();
-        cpuVariantPack[invVariance->get_uid()] = invVarianceTensor.memory().hostData();
-        cpuVariantPack[activatedY->get_uid()] = activatedYRefTensor.memory().hostData();
+        const std::unordered_map<int64_t, void*> cpuVariantPack{
+            {x->get_uid(), xTensor.memory().hostData()},
+            {scale->get_uid(), scaleTensor.memory().hostData()},
+            {bias->get_uid(), biasTensor.memory().hostData()},
+            {mean->get_uid(), meanTensor.memory().hostData()},
+            {invVariance->get_uid(), invVarianceTensor.memory().hostData()},
+            {activatedY->get_uid(), activatedYRefTensor.memory().hostData()}};
 
         // Execute on CPU using graph executor
         auto [serializedGraph, serErr] = graph->to_binary();
         if(serErr.is_bad())
         {
-            std::cerr << "Failed to serialize graph: " << serErr.get_message() << std::endl;
+            std::cerr << "Failed to serialize graph: " << serErr.get_message() << '\n';
             return false;
         }
         hipdnn_test_sdk::utilities::CpuReferenceGraphExecutor cpuExecutor;
@@ -133,13 +134,14 @@ bool SampleRunner::operator()(const TensorLayout& layout)
             tolerance, tolerance);
 
         std::cout << "CPU reference validation:\n";
-        bool yValid = hipdnn_test_sdk::utilities::validateAndReport<OutputType>(std::cout,
-                                                                                "activated_y",
-                                                                                yValidator,
-                                                                                activatedYRefTensor,
-                                                                                activatedYTensor,
-                                                                                tolerance,
-                                                                                tolerance);
+        const bool yValid
+            = hipdnn_test_sdk::utilities::validateAndReport<OutputType>(std::cout,
+                                                                        "activated_y",
+                                                                        yValidator,
+                                                                        activatedYRefTensor,
+                                                                        activatedYTensor,
+                                                                        tolerance,
+                                                                        tolerance);
 
         validationPassed = yValid;
     }
@@ -157,23 +159,28 @@ bool SampleRunner::operator()(const TensorLayout& layout)
 
 int main(int argc, char* argv[])
 {
-    auto config = parseCommandLineArgs(argc, argv);
-
-    auto [handle, handleError] = createHipdnnHandle();
-    HIPDNN_FE_CHECK(handleError);
-
-    bool allPassed = run(SampleRunner{*handle, config}, config);
-
-    if(allPassed)
+    try
     {
-        std::cout
-            << "All batch normalization inference + activation runs completed successfully.\n";
-        return 0;
-    }
-    else
-    {
+        auto config = parseCommandLineArgs(argc, argv);
+
+        auto [handle, handleError] = createHipdnnHandle();
+        HIPDNN_FE_CHECK(handleError);
+
+        const bool allPassed = run(SampleRunner{*handle, config}, config);
+
+        if(allPassed)
+        {
+            std::cout
+                << "All batch normalization inference + activation runs completed successfully.\n";
+            return 0;
+        }
         std::cout
             << "One or more batch normalization inference + activation runs failed validation.\n";
+        return 1;
+    }
+    catch(const std::exception& e)
+    {
+        std::fprintf(stderr, "Unhandled exception: %s\n", e.what());
         return 1;
     }
 }

@@ -1,6 +1,7 @@
 // Copyright © Advanced Micro Devices, Inc., or its affiliates.
 // SPDX-License-Identifier:  MIT
 
+#include <cstdio>
 #include <iostream>
 #include <string>
 #include <unordered_map>
@@ -26,7 +27,7 @@ bool SampleRunner::operator()(const TensorLayout& layout)
     std::cout << "Running batch normalization backwards graph " << inputType << " [" << layout
               << "]" << (config.cpuValidation ? " (with CPU validation)" : "") << "...\n";
 
-    auto n = config.dims.size() > 0 ? config.dims[0] : 16;
+    auto n = !config.dims.empty() ? config.dims[0] : 16;
     auto c = config.dims.size() > 1 ? config.dims[1] : 16;
     auto h = config.dims.size() > 2 ? config.dims[2] : 16;
     auto w = config.dims.size() > 3 ? config.dims[3] : 16;
@@ -122,11 +123,9 @@ bool SampleRunner::operator()(const TensorLayout& layout)
                 static_cast<IntermediateType>(tolerance), static_cast<IntermediateType>(tolerance));
 
         std::cout << "CPU reference validation:\n";
-
-        bool dxValid = hipdnn_test_sdk::utilities::validateAndReport<InputType>(
+        const bool dxValid = hipdnn_test_sdk::utilities::validateAndReport<InputType>(
             std::cout, "dx", dxValidator, dxRefTensor, dxTensor, floatTolerance, floatTolerance);
-
-        bool dscaleValid
+        const bool dscaleValid
             = hipdnn_test_sdk::utilities::validateAndReport<IntermediateType>(std::cout,
                                                                               "dscale",
                                                                               dscaleDbiasValidator,
@@ -134,8 +133,7 @@ bool SampleRunner::operator()(const TensorLayout& layout)
                                                                               dscaleTensor,
                                                                               floatTolerance,
                                                                               floatTolerance);
-
-        bool dbiasValid
+        const bool dbiasValid
             = hipdnn_test_sdk::utilities::validateAndReport<IntermediateType>(std::cout,
                                                                               "dbias",
                                                                               dscaleDbiasValidator,
@@ -149,15 +147,21 @@ bool SampleRunner::operator()(const TensorLayout& layout)
 
     std::cout << "First 10 dx values: ";
     for(int i = 0; i < 10; ++i)
+    {
         std::cout << static_cast<float>(dxHostPtr[i]) << " ";
+    }
 
     std::cout << "\nFirst 10 dscale values: ";
     for(int i = 0; i < 10; ++i)
+    {
         std::cout << static_cast<float>(dscaleHostPtr[i]) << " ";
+    }
 
     std::cout << "\nFirst 10 dbias values: ";
     for(int i = 0; i < 10; ++i)
+    {
         std::cout << static_cast<float>(dbiasHostPtr[i]) << " ";
+    }
 
     std::cout << "\nBatch normalization backward graph execution complete for " << inputType
               << ".\n\n";
@@ -167,21 +171,26 @@ bool SampleRunner::operator()(const TensorLayout& layout)
 
 int main(int argc, char* argv[])
 {
-    auto config = parseCommandLineArgs(argc, argv);
-
-    auto [handle, handleError] = createHipdnnHandle();
-    HIPDNN_FE_CHECK(handleError);
-
-    bool allPassed = run(SampleRunner{*handle, config}, config);
-
-    if(allPassed)
+    try
     {
-        std::cout << "All batch normalization backward runs completed successfully.\n";
-        return 0;
-    }
-    else
-    {
+        auto config = parseCommandLineArgs(argc, argv);
+
+        auto [handle, handleError] = createHipdnnHandle();
+        HIPDNN_FE_CHECK(handleError);
+
+        const bool allPassed = run(SampleRunner{*handle, config}, config);
+
+        if(allPassed)
+        {
+            std::cout << "All batch normalization backward runs completed successfully.\n";
+            return 0;
+        }
         std::cout << "One or more batch normalization backward runs failed validation.\n";
+        return 1;
+    }
+    catch(const std::exception& e)
+    {
+        std::fprintf(stderr, "Unhandled exception: %s\n", e.what());
         return 1;
     }
 }

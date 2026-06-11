@@ -1,6 +1,7 @@
 // Copyright © Advanced Micro Devices, Inc., or its affiliates.
 // SPDX-License-Identifier:  MIT
 
+#include <cstdio>
 #include <iostream>
 #include <string>
 #include <unordered_map>
@@ -28,11 +29,15 @@ bool SampleRunner::operator()(const TensorLayout& layout)
               << (config.cpuValidation ? " (with CPU validation)" : "");
 
     if(config.useRunningStats)
+    {
         std::cout << " [FULL_TRAINING mode]...\n";
+    }
     else
+    {
         std::cout << " [BATCH_STATS_ONLY mode]...\n";
+    }
 
-    auto n = config.dims.size() > 0 ? config.dims[0] : 16;
+    auto n = !config.dims.empty() ? config.dims[0] : 16;
     auto c = config.dims.size() > 1 ? config.dims[1] : 16;
     auto h = config.dims.size() > 2 ? config.dims[2] : 16;
     auto w = config.dims.size() > 3 ? config.dims[3] : 16;
@@ -56,7 +61,7 @@ bool SampleRunner::operator()(const TensorLayout& layout)
     std::shared_ptr<graph::TensorAttributes> prevRunningMean;
     std::shared_ptr<graph::TensorAttributes> prevRunningVar;
 
-    double momentumVal = 0.1;
+    const double momentumVal = 0.1;
 
     if(config.useRunningStats)
     {
@@ -190,10 +195,10 @@ bool SampleRunner::operator()(const TensorLayout& layout)
                     static_cast<IntermediateType>(tolerance),
                     static_cast<IntermediateType>(tolerance));
 
-            bool yValid = hipdnn_test_sdk::utilities::validateAndReport<InputType>(
+            std::cout << "CPU reference validation:\n";
+            const bool yValid = hipdnn_test_sdk::utilities::validateAndReport<InputType>(
                 std::cout, "y", yValidator, yRefTensor, yTensor, floatTolerance, floatTolerance);
-
-            bool meanValid = hipdnn_test_sdk::utilities::validateAndReport<IntermediateType>(
+            const bool meanValid = hipdnn_test_sdk::utilities::validateAndReport<IntermediateType>(
                 std::cout,
                 "saved_mean",
                 statsValidator,
@@ -201,33 +206,33 @@ bool SampleRunner::operator()(const TensorLayout& layout)
                 savedMeanTensor,
                 floatTolerance,
                 floatTolerance);
-
-            bool invVarValid = hipdnn_test_sdk::utilities::validateAndReport<IntermediateType>(
-                std::cout,
-                "saved_inv_variance",
-                statsValidator,
-                savedInvVarRefTensor,
-                savedInvVarTensor,
-                floatTolerance,
-                floatTolerance);
-
-            bool nextMeanValid = hipdnn_test_sdk::utilities::validateAndReport<IntermediateType>(
-                std::cout,
-                "next_running_mean",
-                statsValidator,
-                nextMeanRefTensor,
-                nextMeanTensor,
-                floatTolerance,
-                floatTolerance);
-
-            bool nextVarValid = hipdnn_test_sdk::utilities::validateAndReport<IntermediateType>(
-                std::cout,
-                "next_running_var",
-                statsValidator,
-                nextVarRefTensor,
-                nextVarTensor,
-                floatTolerance,
-                floatTolerance);
+            const bool invVarValid
+                = hipdnn_test_sdk::utilities::validateAndReport<IntermediateType>(
+                    std::cout,
+                    "saved_inv_variance",
+                    statsValidator,
+                    savedInvVarRefTensor,
+                    savedInvVarTensor,
+                    floatTolerance,
+                    floatTolerance);
+            const bool nextMeanValid
+                = hipdnn_test_sdk::utilities::validateAndReport<IntermediateType>(
+                    std::cout,
+                    "next_running_mean",
+                    statsValidator,
+                    nextMeanRefTensor,
+                    nextMeanTensor,
+                    floatTolerance,
+                    floatTolerance);
+            const bool nextVarValid
+                = hipdnn_test_sdk::utilities::validateAndReport<IntermediateType>(
+                    std::cout,
+                    "next_running_var",
+                    statsValidator,
+                    nextVarRefTensor,
+                    nextVarTensor,
+                    floatTolerance,
+                    floatTolerance);
 
             validationPassed = yValid && meanValid && invVarValid && nextMeanValid && nextVarValid;
         }
@@ -260,10 +265,10 @@ bool SampleRunner::operator()(const TensorLayout& layout)
                     static_cast<IntermediateType>(tolerance),
                     static_cast<IntermediateType>(tolerance));
 
-            bool yValid = hipdnn_test_sdk::utilities::validateAndReport<InputType>(
+            std::cout << "CPU reference validation:\n";
+            const bool yValid = hipdnn_test_sdk::utilities::validateAndReport<InputType>(
                 std::cout, "y", yValidator, yRefTensor, yTensor, floatTolerance, floatTolerance);
-
-            bool meanValid = hipdnn_test_sdk::utilities::validateAndReport<IntermediateType>(
+            const bool meanValid = hipdnn_test_sdk::utilities::validateAndReport<IntermediateType>(
                 std::cout,
                 "saved_mean",
                 statsValidator,
@@ -271,15 +276,15 @@ bool SampleRunner::operator()(const TensorLayout& layout)
                 savedMeanTensor,
                 floatTolerance,
                 floatTolerance);
-
-            bool invVarValid = hipdnn_test_sdk::utilities::validateAndReport<IntermediateType>(
-                std::cout,
-                "saved_inv_variance",
-                statsValidator,
-                savedInvVarRefTensor,
-                savedInvVarTensor,
-                floatTolerance,
-                floatTolerance);
+            const bool invVarValid
+                = hipdnn_test_sdk::utilities::validateAndReport<IntermediateType>(
+                    std::cout,
+                    "saved_inv_variance",
+                    statsValidator,
+                    savedInvVarRefTensor,
+                    savedInvVarTensor,
+                    floatTolerance,
+                    floatTolerance);
 
             validationPassed = yValid && meanValid && invVarValid;
         }
@@ -287,15 +292,21 @@ bool SampleRunner::operator()(const TensorLayout& layout)
 
     std::cout << "First 10 y values: ";
     for(int i = 0; i < 10; ++i)
+    {
         std::cout << static_cast<float>(yHostPtr[i]) << " ";
+    }
 
     std::cout << "\nFirst 10 saved_mean values: ";
     for(int i = 0; i < 10; ++i)
+    {
         std::cout << static_cast<float>(savedMeanHostPtr[i]) << " ";
+    }
 
     std::cout << "\nFirst 10 saved_inv_variance values: ";
     for(int i = 0; i < 10; ++i)
+    {
         std::cout << static_cast<float>(savedInvVarHostPtr[i]) << " ";
+    }
 
     if(config.useRunningStats)
     {
@@ -304,11 +315,15 @@ bool SampleRunner::operator()(const TensorLayout& layout)
 
         std::cout << "\nFirst 10 next_running_mean values: ";
         for(int i = 0; i < 10; ++i)
+        {
             std::cout << static_cast<float>(nextMeanHostPtr[i]) << " ";
+        }
 
         std::cout << "\nFirst 10 next_running_variance values: ";
         for(int i = 0; i < 10; ++i)
+        {
             std::cout << static_cast<float>(nextVarHostPtr[i]) << " ";
+        }
     }
 
     std::cout << '\n';
@@ -320,21 +335,26 @@ bool SampleRunner::operator()(const TensorLayout& layout)
 
 int main(int argc, char* argv[])
 {
-    auto config = parseCommandLineArgs(argc, argv, SampleType::BN_TRAINING);
-
-    auto [handle, handleError] = createHipdnnHandle();
-    HIPDNN_FE_CHECK(handleError);
-
-    bool allPassed = run(SampleRunner{*handle, config}, config);
-
-    if(allPassed)
+    try
     {
-        std::cout << "All batch normalization training runs completed successfully.\n";
-        return 0;
-    }
-    else
-    {
+        auto config = parseCommandLineArgs(argc, argv, SampleType::BN_TRAINING);
+
+        auto [handle, handleError] = createHipdnnHandle();
+        HIPDNN_FE_CHECK(handleError);
+
+        const bool allPassed = run(SampleRunner{*handle, config}, config);
+
+        if(allPassed)
+        {
+            std::cout << "All batch normalization training runs completed successfully.\n";
+            return 0;
+        }
         std::cout << "One or more batch normalization training runs failed validation.\n";
+        return 1;
+    }
+    catch(const std::exception& e)
+    {
+        std::fprintf(stderr, "Unhandled exception: %s\n", e.what());
         return 1;
     }
 }

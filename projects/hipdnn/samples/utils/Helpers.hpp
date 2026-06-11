@@ -17,21 +17,23 @@
 #include <sstream> // added
 #include <vector>
 
+// NOLINTBEGIN(google-global-names-in-headers)
 using hipdnn_data_sdk::utilities::TensorLayout;
 
 // Use portable custom types instead of HIP types (works with any C++ compiler)
 using hipdnn_data_sdk::types::bfloat16;
 using hipdnn_data_sdk::types::half;
+// NOLINTEND(google-global-names-in-headers)
 
 // ERROR MACROS
 
 #define HIP_CHECK(status)                                                                      \
     do                                                                                         \
     {                                                                                          \
-        if(status != hipSuccess)                                                               \
+        if((status) != hipSuccess)                                                             \
         {                                                                                      \
             std::cerr << "HIP Error: " << hipGetErrorString(status) << " in file " << __FILE__ \
-                      << " at line " << __LINE__ << std::endl;                                 \
+                      << " at line " << __LINE__ << '\n';                                      \
             exit(EXIT_FAILURE);                                                                \
         }                                                                                      \
     } while(0)
@@ -39,10 +41,10 @@ using hipdnn_data_sdk::types::half;
 #define HIPDNN_CHECK(status)                                                             \
     do                                                                                   \
     {                                                                                    \
-        if(status != HIPDNN_STATUS_SUCCESS)                                              \
+        if((status) != HIPDNN_STATUS_SUCCESS)                                            \
         {                                                                                \
             std::cerr << "hipDNN Error: " << hipdnnGetErrorString(status) << " in file " \
-                      << __FILE__ << " at line " << __LINE__ << std::endl;               \
+                      << __FILE__ << " at line " << __LINE__ << '\n';                    \
             exit(EXIT_FAILURE);                                                          \
         }                                                                                \
     } while(0)
@@ -54,9 +56,36 @@ using hipdnn_data_sdk::types::half;
         if(!status.is_good())                                                             \
         {                                                                                 \
             std::cerr << "hipDNN Frontend Error: " << status.get_message() << " in file " \
-                      << __FILE__ << " at line " << __LINE__ << std::endl;                \
+                      << __FILE__ << " at line " << __LINE__ << '\n';                     \
             exit(EXIT_FAILURE);                                                           \
         }                                                                                 \
+    } while(0)
+
+// Skip-aware variant of HIPDNN_FE_CHECK for use inside bool-returning sample
+// callbacks (e.g. SampleRunner::operator()). On GRAPH_NOT_SUPPORTED the macro
+// prints a clear skip message and `return true;` so the enclosing variant is
+// counted as gracefully skipped (samples/README.md documents this contract).
+// On any other non-good status, behavior matches HIPDNN_FE_CHECK (exit 1).
+//
+// The macro contains `return true;`, so it MUST only be used inside a
+// bool-returning function context. For non-bool contexts (e.g. int main),
+// use HIPDNN_FE_CHECK instead.
+#define HIPDNN_FE_CHECK_SKIPPABLE(statusObj)                                                    \
+    do                                                                                          \
+    {                                                                                           \
+        auto const& status = statusObj;                                                         \
+        if(!status.is_good())                                                                   \
+        {                                                                                       \
+            if(status.get_code() == hipdnn_frontend::ErrorCode::GRAPH_NOT_SUPPORTED)            \
+            {                                                                                   \
+                std::cout << "Skipping: no engine has an applicable solution for this "         \
+                          << "graph on the current device. (" << status.get_message() << ")\n"; \
+                return true;                                                                    \
+            }                                                                                   \
+            std::cerr << "hipDNN Frontend Error: " << status.get_message() << " in file "       \
+                      << __FILE__ << " at line " << __LINE__ << '\n';                           \
+            exit(EXIT_FAILURE);                                                                 \
+        }                                                                                       \
     } while(0)
 
 // CLI HELP
@@ -99,7 +128,7 @@ struct Config
     bool useRunningStats = false;
 
     // NEW CLI fields
-    int engine_id = -1;
+    int engineId = -1;
     std::string dtype;
     std::string layout;
 
@@ -129,13 +158,13 @@ inline std::vector<int64_t> parseList(const std::string& str)
 // CLI PARSER
 
 inline Config
-    parseCommandLineArgs(int argc, char* argv[], SampleType sampleType = SampleType::GENERIC)
+    parseCommandLineArgs(int argc, char** argv, SampleType sampleType = SampleType::GENERIC)
 {
     auto config = Config{};
 
     for(int i = 1; i < argc; ++i)
     {
-        std::string arg = argv[i];
+        const std::string arg = argv[i];
 
         if(arg == "--verify-cpu" || arg == "-vc")
         {
@@ -154,7 +183,7 @@ inline Config
 
         else if(arg == "--engine-id")
         {
-            config.engine_id = std::stoi(argv[++i]);
+            config.engineId = std::stoi(argv[++i]);
         }
         else if(arg == "--dtype")
         {
@@ -192,7 +221,7 @@ inline Config
         }
         else
         {
-            std::cerr << "Unknown argument: " << arg << std::endl;
+            std::cerr << "Unknown argument: " << arg << '\n';
             printSampleHelp(argv[0], sampleType);
             exit(EXIT_FAILURE);
         }
@@ -213,26 +242,40 @@ bool run(F&& f, const Config& config)
 
     // dtype selection
     if(!config.dtype.empty())
+    {
         dtypes.push_back(config.dtype);
+    }
     else
+    {
         dtypes = {"fp32", "fp16", "bf16"};
+    }
 
     // layout selection
     if(!config.layout.empty())
+    {
         layouts.push_back(config.layout == "nhwc" ? TensorLayout::NHWC : TensorLayout::NCHW);
+    }
     else
+    {
         layouts = {TensorLayout::NCHW, TensorLayout::NHWC};
+    }
 
     for(const auto& dt : dtypes)
     {
         for(const auto& layout : layouts)
         {
             if(dt == "fp32")
+            {
                 allPassed &= f.template operator()<float, float>(layout);
+            }
             else if(dt == "fp16")
+            {
                 allPassed &= f.template operator()<half, float>(layout);
+            }
             else if(dt == "bf16")
+            {
                 allPassed &= f.template operator()<bfloat16, float>(layout);
+            }
         }
     }
 

@@ -1,6 +1,7 @@
 // Copyright © Advanced Micro Devices, Inc., or its affiliates.
 // SPDX-License-Identifier:  MIT
 
+#include <cstdio>
 #include <iostream>
 #include <string>
 #include <unordered_map>
@@ -27,7 +28,7 @@ bool SampleRunner::operator()(const TensorLayout& layout)
     std::cout << "Running batch normalization inference with variance graph " << inputType << " ["
               << layout << "]" << (config.cpuValidation ? " (with CPU validation)" : "") << "...\n";
 
-    auto n = config.dims.size() > 0 ? config.dims[0] : 16;
+    auto n = !config.dims.empty() ? config.dims[0] : 16;
     auto c = config.dims.size() > 1 ? config.dims[1] : 16;
     auto h = config.dims.size() > 2 ? config.dims[2] : 16;
     auto w = config.dims.size() > 3 ? config.dims[3] : 16;
@@ -96,17 +97,16 @@ bool SampleRunner::operator()(const TensorLayout& layout)
 
         auto tolerance
             = hipdnn_test_sdk::utilities::batchnorm::getToleranceInferenceWithVariance<InputType>();
-        double epsilonVal = utilities::BATCHNORM_DEFAULT_EPSILON;
+        const double epsilon = utilities::BATCHNORM_DEFAULT_EPSILON;
 
         hipdnn_test_sdk::utilities::CpuFpReferenceBatchnorm::fwdInferenceWithVariance(
-            xTensor, scaleTensor, biasTensor, meanTensor, varianceTensor, yRefTensor, epsilonVal);
+            xTensor, scaleTensor, biasTensor, meanTensor, varianceTensor, yRefTensor, epsilon);
 
         auto validator
             = hipdnn_test_sdk::utilities::CpuFpReferenceValidation<InputType>(tolerance, tolerance);
 
         std::cout << "CPU reference validation:\n";
-
-        bool yValid = hipdnn_test_sdk::utilities::validateAndReport<InputType>(
+        const bool yValid = hipdnn_test_sdk::utilities::validateAndReport<InputType>(
             std::cout, "y", validator, yRefTensor, yTensor, tolerance, tolerance);
 
         validationPassed = yValid;
@@ -126,23 +126,28 @@ bool SampleRunner::operator()(const TensorLayout& layout)
 
 int main(int argc, char* argv[])
 {
-    auto config = parseCommandLineArgs(argc, argv);
-
-    auto [handle, handleError] = createHipdnnHandle();
-    HIPDNN_FE_CHECK(handleError);
-
-    bool allPassed = run(SampleRunner{*handle, config}, config);
-
-    if(allPassed)
+    try
     {
-        std::cout
-            << "All batch normalization inference with variance runs completed successfully.\n";
-        return 0;
-    }
-    else
-    {
+        auto config = parseCommandLineArgs(argc, argv);
+
+        auto [handle, handleError] = createHipdnnHandle();
+        HIPDNN_FE_CHECK(handleError);
+
+        const bool allPassed = run(SampleRunner{*handle, config}, config);
+
+        if(allPassed)
+        {
+            std::cout
+                << "All batch normalization inference with variance runs completed successfully.\n";
+            return 0;
+        }
         std::cout
             << "One or more batch normalization inference with variance runs failed validation.\n";
+        return 1;
+    }
+    catch(const std::exception& e)
+    {
+        std::fprintf(stderr, "Unhandled exception: %s\n", e.what());
         return 1;
     }
 }

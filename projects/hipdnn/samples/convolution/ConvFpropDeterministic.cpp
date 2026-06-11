@@ -1,6 +1,7 @@
 // Copyright © Advanced Micro Devices, Inc., or its affiliates.
 // SPDX-License-Identifier:  MIT
 
+#include <cstdio>
 #include <iostream>
 #include <string>
 #include <unordered_map>
@@ -28,22 +29,22 @@ bool SampleRunner::operator()(const TensorLayout& layout)
     std::cout << "Running deterministic convolution fprop graph " << inputType << " [" << layout
               << "]" << (config.cpuValidation ? " (with CPU validation)" : "") << "...\n";
 
-    auto n = config.dims.size() > 0 ? config.dims[0] : 16;
+    auto n = !config.dims.empty() ? config.dims[0] : 16;
     auto c = config.dims.size() > 1 ? config.dims[1] : 16;
     auto h = config.dims.size() > 2 ? config.dims[2] : 16;
     auto w = config.dims.size() > 3 ? config.dims[3] : 16;
 
-    auto k = config.filter.size() > 0 ? config.filter[0] : 16;
-    auto r = config.filter.size() > 0 ? config.filter[0] : 3;
+    auto k = !config.filter.empty() ? config.filter[0] : 16;
+    auto r = !config.filter.empty() ? config.filter[0] : 3;
     auto s = config.filter.size() > 1 ? config.filter[1] : 3;
 
-    auto u = config.stride.size() > 0 ? config.stride[0] : 1;
+    auto u = !config.stride.empty() ? config.stride[0] : 1;
     auto v = config.stride.size() > 1 ? config.stride[1] : 1;
 
-    auto padH = config.padding.size() > 0 ? config.padding[0] : 1;
+    auto padH = !config.padding.empty() ? config.padding[0] : 1;
     auto padW = config.padding.size() > 1 ? config.padding[1] : 1;
 
-    auto dilH = config.dilation.size() > 0 ? config.dilation[0] : 1;
+    auto dilH = !config.dilation.empty() ? config.dilation[0] : 1;
     auto dilW = config.dilation.size() > 1 ? config.dilation[1] : 1;
 
     auto graph = std::make_shared<graph::Graph>();
@@ -63,7 +64,7 @@ bool SampleRunner::operator()(const TensorLayout& layout)
     auto yAttr = graph->conv_fprop(xAttr, wAttr, convAttributes);
     yAttr->set_output(true);
 
-    HIPDNN_FE_CHECK(graph->build(handle));
+    HIPDNN_FE_CHECK_SKIPPABLE(graph->build(handle));
 
     std::cout << "Graph build successful (using deterministic engine).\n";
 
@@ -77,9 +78,9 @@ bool SampleRunner::operator()(const TensorLayout& layout)
     yTensor1.fillWithValue(static_cast<InputType>(0.0f));
     yTensor2.fillWithValue(static_cast<InputType>(0.0f));
 
-    int64_t workspaceSize;
+    int64_t workspaceSize = 0;
     HIPDNN_FE_CHECK(graph->get_workspace_size(workspaceSize));
-    utilities::Workspace workspace(static_cast<size_t>(workspaceSize));
+    const utilities::Workspace workspace(static_cast<size_t>(workspaceSize));
 
     {
         std::unordered_map<int64_t, void*> variantPack;
@@ -106,12 +107,16 @@ bool SampleRunner::operator()(const TensorLayout& layout)
 
     std::cout << "First 10 y values (run 1): ";
     for(int i = 0; i < 10; ++i)
+    {
         std::cout << static_cast<float>(y1HostPtr[i]) << " ";
+    }
     std::cout << '\n';
 
     std::cout << "First 10 y values (run 2): ";
     for(int i = 0; i < 10; ++i)
+    {
         std::cout << static_cast<float>(y2HostPtr[i]) << " ";
+    }
     std::cout << '\n';
 
     bool determinismPassed = true;
@@ -129,9 +134,13 @@ bool SampleRunner::operator()(const TensorLayout& layout)
     }
 
     if(determinismPassed)
+    {
         std::cout << "Determinism check: PASSED (results are bit-exact)\n";
+    }
     else
+    {
         std::cout << "Determinism check: FAILED (results differ)\n";
+    }
 
     bool validationPassed = true;
 
@@ -149,7 +158,8 @@ bool SampleRunner::operator()(const TensorLayout& layout)
         auto yValidator
             = hipdnn_test_sdk::utilities::CpuFpReferenceValidation<InputType>(tolerance, tolerance);
 
-        bool yValid = hipdnn_test_sdk::utilities::validateAndReport<InputType>(
+        std::cout << "CPU reference validation:\n";
+        const bool yValid = hipdnn_test_sdk::utilities::validateAndReport<InputType>(
             std::cout, "y", yValidator, yRefTensor, yTensor1, tolerance, tolerance);
 
         validationPassed = yValid;
@@ -163,25 +173,30 @@ bool SampleRunner::operator()(const TensorLayout& layout)
 
 int main(int argc, char* argv[])
 {
-    auto config = parseCommandLineArgs(argc, argv);
-
-    initializeFrontendLogging();
-
-    hipdnnHandle_t handle;
-    HIPDNN_CHECK(hipdnnCreate(&handle));
-
-    bool allPassed = run(SampleRunner{handle, config}, config);
-
-    HIPDNN_CHECK(hipdnnDestroy(handle));
-
-    if(allPassed)
+    try
     {
-        std::cout << "All deterministic convolution fprop runs completed successfully.\n";
-        return 0;
-    }
-    else
-    {
+        auto config = parseCommandLineArgs(argc, argv);
+
+        initializeFrontendLogging();
+
+        hipdnnHandle_t handle = nullptr;
+        HIPDNN_CHECK(hipdnnCreate(&handle));
+
+        const bool allPassed = run(SampleRunner{handle, config}, config);
+
+        HIPDNN_CHECK(hipdnnDestroy(handle));
+
+        if(allPassed)
+        {
+            std::cout << "All deterministic convolution fprop runs completed successfully.\n";
+            return 0;
+        }
         std::cout << "One or more deterministic convolution fprop runs failed.\n";
+        return 1;
+    }
+    catch(const std::exception& e)
+    {
+        std::fprintf(stderr, "Unhandled exception: %s\n", e.what());
         return 1;
     }
 }

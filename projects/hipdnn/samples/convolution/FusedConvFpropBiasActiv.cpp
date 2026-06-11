@@ -1,6 +1,7 @@
 // Copyright © Advanced Micro Devices, Inc., or its affiliates.
 // SPDX-License-Identifier:  MIT
 
+#include <cstdio>
 #include <iostream>
 #include <string>
 #include <unordered_map>
@@ -29,22 +30,22 @@ bool SampleRunner::operator()(const TensorLayout& layout)
     std::cout << "Running fused convolution fprop + bias + activ graph " << inputType << " ["
               << layout << "]" << (config.cpuValidation ? " (with CPU validation)" : "") << "...\n";
 
-    auto n = config.dims.size() > 0 ? config.dims[0] : 16;
+    auto n = !config.dims.empty() ? config.dims[0] : 16;
     auto c = config.dims.size() > 1 ? config.dims[1] : 16;
     auto h = config.dims.size() > 2 ? config.dims[2] : 16;
     auto w = config.dims.size() > 3 ? config.dims[3] : 16;
 
-    auto k = config.filter.size() > 0 ? config.filter[0] : 16;
-    auto r = config.filter.size() > 0 ? config.filter[0] : 3;
+    auto k = !config.filter.empty() ? config.filter[0] : 16;
+    auto r = !config.filter.empty() ? config.filter[0] : 3;
     auto s = config.filter.size() > 1 ? config.filter[1] : 3;
 
-    auto u = config.stride.size() > 0 ? config.stride[0] : 1;
+    auto u = !config.stride.empty() ? config.stride[0] : 1;
     auto v = config.stride.size() > 1 ? config.stride[1] : 1;
 
-    auto padH = config.padding.size() > 0 ? config.padding[0] : 1;
+    auto padH = !config.padding.empty() ? config.padding[0] : 1;
     auto padW = config.padding.size() > 1 ? config.padding[1] : 1;
 
-    auto dilH = config.dilation.size() > 0 ? config.dilation[0] : 1;
+    auto dilH = !config.dilation.empty() ? config.dilation[0] : 1;
     auto dilW = config.dilation.size() > 1 ? config.dilation[1] : 1;
 
     auto graph = std::make_shared<graph::Graph>();
@@ -52,9 +53,9 @@ bool SampleRunner::operator()(const TensorLayout& layout)
         .set_intermediate_data_type(hipdnn_frontend::DataType::FLOAT)
         .set_compute_data_type(hipdnn_frontend::DataType::FLOAT);
 
-    if(config.engine_id != -1)
+    if(config.engineId != -1)
     {
-        graph->set_preferred_engine_id_ext(config.engine_id);
+        graph->set_preferred_engine_id_ext(config.engineId);
     }
 
     auto xAttr = createTensor({n, c, h, w}, inputType, layout);
@@ -67,6 +68,9 @@ bool SampleRunner::operator()(const TensorLayout& layout)
     convAttributes.set_dilation({dilH, dilW});
 
     auto convOutAttr = graph->conv_fprop(xAttr, wAttr, convAttributes);
+    // Explicitly set output dimensions and strides so we can derive the bias shape.
+    // The output dimensions aren't automatically populated until after graph->build_operation_graph(),
+    // but we need them now to create the bias tensor with the correct per-channel shape.
     convOutAttr->set_dim({n, k, h, w});
     convOutAttr->set_stride(utilities::generateStrides({n, k, h, w}, layout.strideOrder));
 
@@ -87,7 +91,7 @@ bool SampleRunner::operator()(const TensorLayout& layout)
     auto yAttr = graph->pointwise(biasOutAttr, activationAttributes);
     yAttr->set_output(true);
 
-    HIPDNN_FE_CHECK(graph->build(handle));
+    HIPDNN_FE_CHECK_SKIPPABLE(graph->build(handle));
 
     std::cout << "Graph build successful.\n";
 
@@ -107,9 +111,9 @@ bool SampleRunner::operator()(const TensorLayout& layout)
     variantPack[biasAttr->get_uid()] = biasTensor.memory().deviceData();
     variantPack[yAttr->get_uid()] = yTensor.memory().deviceData();
 
-    int64_t workspaceSize;
+    int64_t workspaceSize = 0;
     HIPDNN_FE_CHECK(graph->get_workspace_size(workspaceSize));
-    utilities::Workspace workspace(static_cast<size_t>(workspaceSize));
+    const utilities::Workspace workspace(static_cast<size_t>(workspaceSize));
 
     HIPDNN_FE_CHECK(graph->execute(handle, variantPack, workspace.get()));
 
@@ -153,8 +157,7 @@ bool SampleRunner::operator()(const TensorLayout& layout)
             = hipdnn_test_sdk::utilities::CpuFpReferenceValidation<InputType>(tolerance, tolerance);
 
         std::cout << "CPU reference validation:\n";
-
-        bool outValid = hipdnn_test_sdk::utilities::validateAndReport<InputType>(
+        const bool outValid = hipdnn_test_sdk::utilities::validateAndReport<InputType>(
             std::cout, "output", outValidator, yRefTensor, yTensor, tolerance, tolerance);
 
         validationPassed = outValid;
@@ -168,21 +171,26 @@ bool SampleRunner::operator()(const TensorLayout& layout)
 
 int main(int argc, char* argv[])
 {
-    auto config = parseCommandLineArgs(argc, argv);
-
-    auto [handle, handleError] = createHipdnnHandle();
-    HIPDNN_FE_CHECK(handleError);
-
-    bool allPassed = run(SampleRunner{*handle, config}, config);
-
-    if(allPassed)
+    try
     {
-        std::cout << "All fused Conv fwd + Bias + Activation runs completed successfully.\n";
-        return 0;
-    }
-    else
-    {
+        auto config = parseCommandLineArgs(argc, argv);
+
+        auto [handle, handleError] = createHipdnnHandle();
+        HIPDNN_FE_CHECK(handleError);
+
+        const bool allPassed = run(SampleRunner{*handle, config}, config);
+
+        if(allPassed)
+        {
+            std::cout << "All fused Conv fwd + Bias + Activation runs completed successfully.\n";
+            return 0;
+        }
         std::cout << "One or more fused Conv fwd + Bias + Activation runs failed validation.\n";
+        return 1;
+    }
+    catch(const std::exception& e)
+    {
+        std::fprintf(stderr, "Unhandled exception: %s\n", e.what());
         return 1;
     }
 }
