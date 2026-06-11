@@ -8476,9 +8476,20 @@ class KernelWriter(metaclass=abc.ABCMeta):
       # ----------------------------
       # TODO: alignment hack, figure out a better solution
       vgprIdx = ((vgprIdx+1)//2)*2
-      # Avoid bank conflict between VgprA and VgprC
+      # Avoid bank conflict between VgprA and VgprC.
+      # On gfx11/gfx12 the VGPR file has 4 banks (bank = vgpr % 4) and a WMMA reads
+      # its A/B/C operands in lockstep; A and C landing in the same bank serializes
+      # the read and costs +2 cycles per WMMA. The stock test nudges A within C's
+      # parity class only; WMMABankDistinctC instead forces A onto a bank distinct
+      # from C (with B already forced odd, this targets three-way distinctness).
+      # It is VGPR/occupancy-neutral but shape-dependent (helps compute-bound WMMA,
+      # can perturb the layout of memory/latency-bound kernels) so it is opt-in.
       if(self.states.archCaps["VgprBank"]):
-        if (self.states.c.startVgprValu % 4) != (vgprIdx % 4):
+        sameBank = (self.states.c.startVgprValu % 4) == (vgprIdx % 4)
+        if kernel["WMMABankDistinctC"]:
+          if sameBank:
+            vgprIdx += 2
+        elif not sameBank:
           vgprIdx += 2
       # dot2: alignment hack for wider local read
       if kernel["UseDotInstruction"] and kernel["InnerUnroll"] > 1:

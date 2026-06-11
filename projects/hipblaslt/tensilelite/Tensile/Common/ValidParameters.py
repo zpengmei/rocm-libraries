@@ -773,6 +773,12 @@ validParameters = { # we need to make sure this matches develop
     # In order to remove the copying from Acc vgpr to Arch vgpr, only use Arch vgprs for v_mfma_xxx.
     # Only support for kernel whose totalVgpr counts less than 256 and gcn that has control bit ACC_CD.
     "MIArchVgpr": [False, True],
+    # gfx11/gfx12 WMMA: force the A operand onto a VGPR bank distinct from the C
+    # accumulator (bank = vgpr % 4). Same-bank A/C operands serialize the WMMA read
+    # and cost +2 cyc per instruction. VGPR/occupancy-neutral but shape-dependent
+    # (helps compute-bound WMMA, can regress memory/latency-bound kernels), so the
+    # default keeps the stock allocation and the tuner forks on it per shape.
+    "WMMABankDistinctC": [False, True],
     # StreamK (SK) kernels divide work evenly among CUs by splitting along MT and K dimensions.
     # Total work units are calculated as (#MTs x #LoopIters) and divided among workgroups.
     # In most cases each workgroup will calculate a partial tile that are accumulated in a fixup step in the same kernel
