@@ -26,6 +26,9 @@
 // hipcub API
 #include <hipcub/util_device.hpp>
 
+class HipcubUtilDevice : public test_controller::ControlledTest<>
+{};
+
 template<class T>
 __global__
 void alias_temporaries_kernel(T* data, size_t* temp_storage_bytes)
@@ -36,7 +39,7 @@ void alias_temporaries_kernel(T* data, size_t* temp_storage_bytes)
         hipcub::detail::AliasTemporaries(data, *temp_storage_bytes, allocations, allocation_sizes);
 }
 
-TEST(HipcubUtilDevice, AliasTemporariesDevice)
+TEST_F(HipcubUtilDevice, AliasTemporariesDevice)
 {
     int device_id = test_common_utils::obtain_device_from_ctest();
     SCOPED_TRACE(testing::Message() << "with device_id= " << device_id);
@@ -72,7 +75,7 @@ TEST(HipcubUtilDevice, AliasTemporariesDevice)
     HIP_CHECK(hipFree(data));
 }
 
-TEST(HipcubUtilDevice, AliasTemporariesHost)
+TEST_F(HipcubUtilDevice, AliasTemporariesHost)
 {
     int device_id = test_common_utils::obtain_device_from_ctest();
     SCOPED_TRACE(testing::Message() << "with device_id= " << device_id);
@@ -80,6 +83,7 @@ TEST(HipcubUtilDevice, AliasTemporariesHost)
 
     void*  data               = nullptr;
     size_t temp_storage_bytes = 0;
+
     void*  allocations[10];
     size_t allocation_sizes[10] = {1, 789, 3, 5, 8, 13, 21, 257, 256, 890};
 
