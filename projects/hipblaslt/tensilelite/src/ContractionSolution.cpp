@@ -814,6 +814,8 @@ namespace TensileLite
                     uint32_t itersPerWave = CeilDivide(static_cast<uint32_t>(totalIters),
                                                        static_cast<uint32_t>(numWorkGroups.x));
                     args.template append<uint32_t>("SKItersPerWG", itersPerWave);
+                    // skGrid: bounds the fixup CTA-reduction loop (avoids OOB flag/workspace reads)
+                    args.template append<uint32_t>("skGrid", static_cast<uint32_t>(numWorkGroups.x));
                 }
                 else if(sizeMapping.streamK >= 2) // Two-tile SK
                 {

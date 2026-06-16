@@ -228,11 +228,11 @@ class SignatureDefault(Signature):
             signature.addArg("MagicNumberItersPerTile",            SVK.SIG_VALUE, "u32")
             signature.addArg("MagicShiftItersPerTile",             SVK.SIG_VALUE, "u32")
             signature.addArg("SKItersPerWG",                       SVK.SIG_VALUE, "u32")
-            userArgumentsInfo.gemmArgumentSize += 16
+            signature.addArg("skGrid",                             SVK.SIG_VALUE, "u32")  # all SK modes (fixup CTA bound)
+            userArgumentsInfo.gemmArgumentSize += 20
             if kernel["StreamK"] >= 2: # Two-tile SK
-                signature.addArg("skGrid",                         SVK.SIG_VALUE, "u32")
                 signature.addArg("skTiles",                        SVK.SIG_VALUE, "u32")
-                userArgumentsInfo.gemmArgumentSize += 8
+                userArgumentsInfo.gemmArgumentSize += 4
 
         if kernel["ProblemType"]["UseScaleAB"]:
             signature.addArg("AddressScaleA", SVK.SIG_GLOBALBUFFER, cptValueType, "generic")

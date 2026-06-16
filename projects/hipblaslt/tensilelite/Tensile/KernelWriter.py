@@ -5226,9 +5226,9 @@ class KernelWriter(metaclass=abc.ABCMeta):
     module = Module("Move StreamK constants to VGPRs")
     self.states.skConstVgprs = {}
 
-    consts = ["ItersPerTile", "MagicNumberItersPerTile", "MagicShiftItersPerTile", "SKItersPerWG"]
+    consts = ["ItersPerTile", "MagicNumberItersPerTile", "MagicShiftItersPerTile", "SKItersPerWG", "skGrid"]
     if kernel["StreamK"] >= 2:
-      consts += ["skGrid", "skTiles"]
+      consts += ["skTiles"]
 
     baseVgpr = self.states.startVgprSKConsts
     for i, name in enumerate(consts):
@@ -9164,11 +9164,11 @@ class KernelWriter(metaclass=abc.ABCMeta):
       self.defineSgpr("MagicNumberItersPerTile", 1)
       self.defineSgpr("MagicShiftItersPerTile", 1)
       self.defineSgpr("SKItersPerWG", 1)
-      self.states.numSgprStreamK += 4
+      self.defineSgpr("skGrid", 1)  # all SK modes: fixup loop bounds the CTA reduction by skGrid
+      self.states.numSgprStreamK += 5
       if kernel["StreamK"] >= 2: # Two-tile SK
-        self.defineSgpr("skGrid", 1)
         self.defineSgpr("skTiles", 1)
-        self.states.numSgprStreamK += 2
+        self.states.numSgprStreamK += 1
 
     if not kernel["UseSubtileImpl"]:
       if kernel["LocalWriteUseSgprA"]:

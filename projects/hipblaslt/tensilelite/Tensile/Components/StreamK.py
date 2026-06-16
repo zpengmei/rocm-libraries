@@ -937,9 +937,19 @@ class StreamK(Component):
                 sIpt = writer.acquireStreamKConstSgpr(kernel, "ItersPerTile")
                 if writer.isStreamKConstantsToVgprEnabled(kernel):
                     module.add(VReadfirstlaneB32(dst=sgpr(sIpt), src=vgpr(writer.states.skConstVgprs["ItersPerTile"])))
-                module.add(SCmpLtU32(src0=sgpr(sFixupEnd), src1=sgpr(sIpt), comment="done loading partial tiles?"))
+                module.add(SCmpLtU32(src0=sgpr(sFixupEnd), src1=sgpr(sIpt), comment="tile not yet complete?"))
                 writer.releaseStreamKConstSgpr(sIpt)
-                module.add(SCBranchSCC1(labelName=skFixupLabel.getLabelName(), comment="Branch to continue fixup loop"))
+                # Heavy-split safety: a tile can span every CTA, and the per-WG iteration
+                # accounting can otherwise advance sCtaIdx to skGrid. Never read a flag /
+                # workspace slot for a non-existent CTA (sCtaIdx >= skGrid); once every CTA's
+                # partial is reduced the sum is complete regardless of the iteration counter.
+                module.add(SCBranchSCC0(labelName=skStoreLabel.getLabelName(), comment="tile complete -> regular store"))
+                sGrid = writer.acquireStreamKConstSgpr(kernel, "skGrid")
+                if writer.isStreamKConstantsToVgprEnabled(kernel):
+                    module.add(VReadfirstlaneB32(dst=sgpr(sGrid), src=vgpr(writer.states.skConstVgprs["skGrid"])))
+                module.add(SCmpLtU32(src0=sgpr(sCtaIdx), src1=sgpr(sGrid), comment="more CTAs to reduce?"))
+                writer.releaseStreamKConstSgpr(sGrid)
+                module.add(SCBranchSCC1(labelName=skFixupLabel.getLabelName(), comment="continue fixup loop"))
 
                 writer.sgprPool.checkIn(sFixupEnd)
                 writer.sgprPool.checkIn(sCtaIdx)
