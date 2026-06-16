@@ -1486,7 +1486,7 @@ class StreamK(Component):
                 sumIdx = ss.elementSumIdx[elementIdx] + writer.states.c.startVgprValu
             else:
                 sumIdx = ss.elementSumIdx[elementIdx]
-            storeWidth = kernel["StoreVectorWidth"]
+            storeWidth = gwvw  # workspace pitch must match the actual store/load width (gwvw); for MI gwvw==StoreVectorWidth, for source gwvw==VectorWidthA
             # storeWidth = 2
             if batchIdx == 0 and elementIdx == 0:
                 tmpSgprRes = ContinuousRegister(idx=tmpS01, size=1)
@@ -1868,7 +1868,7 @@ class StreamK(Component):
             # vc1 = element[2]
             vc0 = element[3]
 
-            storeWidth = kernel["StoreVectorWidth"]
+            storeWidth = gwvw  # workspace pitch must match the actual store/load width (gwvw); for MI gwvw==StoreVectorWidth, for source gwvw==VectorWidthA
             # storeWidth = 2
             if batchIdx == 0 and elementIdx == 0:
                 tmpS01Res = ContinuousRegister(idx=tmpS01, size=1)
