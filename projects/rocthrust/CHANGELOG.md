@@ -9,6 +9,11 @@ Documentation for rocThrust available at
 
 * gfx1250 support
 
+### Changed
+
+* Benchmarking now uses primbench for its benchmarks instead of Google Benchmark.
+  * See `shared/primbench/README.md` for its documentation.
+
 ## Since last release ROCm 7.12
 
 ### Resolved issues

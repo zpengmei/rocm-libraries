@@ -1,6 +1,6 @@
 /******************************************************************************
  * Copyright (c) 2024, NVIDIA CORPORATION. All rights reserved.
- * Modifications Copyright (c) 2024-2025, Advanced Micro Devices, Inc.  All rights reserved.
+ * Modifications Copyright (c) 2024-2026, Advanced Micro Devices, Inc.  All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions are met:
@@ -33,9 +33,6 @@
 #include <thrust/device_vector.h>
 #include <thrust/execution_policy.h>
 #include <thrust/for_each.h>
-
-// Google Benchmark
-#include <benchmark/benchmark.h>
 
 // STL
 #include <cstddef>

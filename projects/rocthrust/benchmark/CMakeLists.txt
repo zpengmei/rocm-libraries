@@ -36,11 +36,7 @@ function(add_thrust_benchmark BENCHMARK_SOURCE)
         )
     endif()
 
-    target_link_libraries(${BENCHMARK_TARGET}
-        PRIVATE
-            roc::rocrand
-            benchmark::benchmark
-    )
+    target_link_libraries(${BENCHMARK_TARGET} PRIVATE roc::rocrand)
 
     foreach(gpu_target ${GPU_TARGETS})
         target_link_libraries(${BENCHMARK_TARGET}
