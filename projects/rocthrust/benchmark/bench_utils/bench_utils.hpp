@@ -454,12 +454,6 @@ double StatisticsCV(const std::vector<double>& v)
   return stddev / mean;
 }
 
-inline const char* get_seed_message()
-{
-  return "seed for input generation, either an unsigned integer value for determinisic results "
-         "or 'random' for different inputs for each repetition";
-}
-
 struct caching_allocator_t
 {
   using value_type = char;
