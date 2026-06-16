@@ -1561,7 +1561,14 @@ class Solution(collections.abc.Mapping):
       state["GlobalSplitUAlgorithm"] = "MultipleBuffer" # Set default Algorithm
       state["AdaptiveGemmGSUA"] = 0 # Disable AdaptiveGemmGSUA for Stream-K
       if not state["EnableMatrixInstruction"]:
-        reject(state, printRejectionReason, "Stream-K requires MatrixInstruction")
+        # Source/MAC (non-MI) Stream-K: the partial-write (partialsWriteBatch) and
+        # fixup (fixupBatch) paths already handle the source-kernel accumulator
+        # layout -- C lives in ValuC arch VGPRs (codeAccVgprRead is None, WaveNum =
+        # NumThreads/WavefrontSize), so the K-split + workspace reduction is
+        # datapath-agnostic. Allow it for Assembly source kernels; the other
+        # Stream-K constraints below (schedule, SIA, BufferStore, ...) still apply.
+        if state["KernelLanguage"] != "Assembly":
+          reject(state, printRejectionReason, "Stream-K (non-MatrixInstruction) requires Assembly source kernels")
       # if state["PersistentKernel"]:
       #   reject(state, printRejectionReason, "Cannot enable both Stream-K and PersistentKernel")
       if not state["ProblemType"]["StridedBatched"]:
@@ -1575,7 +1582,12 @@ class Solution(collections.abc.Mapping):
       isSia0TdmPgr = state["_ScheduleIterAlg"] == 0 \
         and state["TDMInst"] == 3 \
         and state["PrefetchGlobalRead"] in (1, 2)
-      if state["_ScheduleIterAlg"] not in (2, 3) and not isSia0TdmPgr:
+      # Source/MAC (non-MI) kernels cannot use SIA2/3 (those schedulers are MI-only),
+      # so allow SIA0/SIA1 for non-MI Stream-K. The Stream-K hooks (preLoop,
+      # graWorkGroup, StreamKLocalStart/End K-range, partial write + fixup) are emitted
+      # from the shared kernel body and only depend on the loop counter, not the SIA.
+      isSrcSia = (not state["EnableMatrixInstruction"]) and state["_ScheduleIterAlg"] in (0, 1)
+      if state["_ScheduleIterAlg"] not in (2, 3) and not isSia0TdmPgr and not isSrcSia:
         reject(state, printRejectionReason, "ScheduleIterAlg not supported with Stream-K")
       _validateStreamKForceDPOnly(state, printRejectionReason)
       if state["StreamKAtomic"] == 1:
