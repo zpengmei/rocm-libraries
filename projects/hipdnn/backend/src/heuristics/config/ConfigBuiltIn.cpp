@@ -27,6 +27,7 @@
 
 #include <hipdnn_data_sdk/utilities/PolicyNames.hpp>
 #include <hipdnn_flatbuffers_sdk/data_objects/graph_generated.h>
+#include <hipdnn_flatbuffers_sdk/utilities/PointwiseValidation.hpp>
 #include <hipdnn_plugin_sdk/HeuristicValidation.hpp>
 #include <hipdnn_plugin_sdk/HeuristicsPluginApi.h>
 #include <hipdnn_plugin_sdk/heuristic_api_version.h>
@@ -141,34 +142,226 @@ std::optional<int64_t>
         }
 
         const char* op = nullptr;
-        const TensorDimsStrides* a = nullptr;
-        const TensorDimsStrides* b = nullptr;
+        // Per-op canonical input tensors in match-key order. Each op branch fills
+        // this accumulator with its required-input views (in declaration order);
+        // the guard below requires the FIRST required input to be present and
+        // drops any null trailing tensor. Every multi-input op (conv/matmul=2,
+        // sdpa_fwd/rmsnorm=3, layernorm=4, sdpa_bwd=6, batchnorm 3-5) supplies
+        // non-null leading inputs, so its emitted view vector is unchanged;
+        // pointwise_unary is the first 1-input op the relaxed guard admits.
+        std::vector<const TensorDimsStrides*> opTensors;
 
+        // CANONICAL-TENSOR-ORDER: the per-op tensor order supplied here is the
+        // op's flatbuffer `*_attributes.fbs` INPUT-field declaration order with
+        // the output field(s) dropped; the comparison is POSITIONAL (the views
+        // below are matched index-by-index against the config rule). This MUST
+        // stay in lockstep with the frontend writer/selector that produces these
+        // tensors: `hipdnn_frontend::detail::getMatchKeyTensors` in
+        // `frontend/include/hipdnn_frontend/detail/GraphMatchKey.hpp`. Any change
+        // to a per-op set/order here MUST be mirrored there and vice versa.
+        // Convolution (output excluded, 2 inputs each): conv_fprop → (x, w);
+        // conv_dgrad → (dy, w); conv_wgrad → (x, dy).
         if(const auto* fwd = node->attributes_as_ConvolutionFwdAttributes())
         {
             op = "conv_fprop";
-            a = viewFor(fwd->x_tensor_uid());
-            b = viewFor(fwd->w_tensor_uid());
+            opTensors = {viewFor(fwd->x_tensor_uid()), viewFor(fwd->w_tensor_uid())};
         }
         else if(const auto* bwd = node->attributes_as_ConvolutionBwdAttributes())
         {
             op = "conv_dgrad";
-            a = viewFor(bwd->dy_tensor_uid());
-            b = viewFor(bwd->w_tensor_uid());
+            opTensors = {viewFor(bwd->dy_tensor_uid()), viewFor(bwd->w_tensor_uid())};
         }
         else if(const auto* wrw = node->attributes_as_ConvolutionWrwAttributes())
         {
             op = "conv_wgrad";
-            a = viewFor(wrw->x_tensor_uid());
-            b = viewFor(wrw->dy_tensor_uid());
+            opTensors = {viewFor(wrw->x_tensor_uid()), viewFor(wrw->dy_tensor_uid())};
+        }
+        // CANONICAL-TENSOR-ORDER: matmul tensor order is the
+        // matmul_attributes.fbs INPUT-field declaration order (a, b); the output
+        // field c is dropped; the comparison is POSITIONAL. This mirrors the
+        // frontend writer/selector hipdnn_frontend::detail::getMatchKeyTensors in
+        // frontend/include/hipdnn_frontend/detail/GraphMatchKey.hpp. Any change to
+        // this set/order MUST be mirrored there and vice versa.
+        else if(const auto* mm = node->attributes_as_MatmulAttributes())
+        {
+            op = "matmul";
+            opTensors = {viewFor(mm->a_tensor_uid()), viewFor(mm->b_tensor_uid())};
+        }
+        // CANONICAL-TENSOR-ORDER: rmsnorm tensor order is the
+        // rmsnorm_attributes.fbs INPUT-field declaration order (x, scale,
+        // epsilon); the output field y and the optional bias/inv_rms fields are
+        // dropped; the comparison is POSITIONAL. epsilon is a real UID-bearing
+        // value-tensor (dims {1}), NOT a dropped scalar, so it is the third
+        // positional input. This mirrors the frontend writer/selector
+        // hipdnn_frontend::detail::getMatchKeyTensors in
+        // frontend/include/hipdnn_frontend/detail/GraphMatchKey.hpp. Any change to
+        // this set/order MUST be mirrored there and vice versa.
+        else if(const auto* rms = node->attributes_as_RMSNormAttributes())
+        {
+            op = "rmsnorm";
+            opTensors = {viewFor(rms->x_tensor_uid()),
+                         viewFor(rms->scale_tensor_uid()),
+                         viewFor(rms->epsilon_tensor_uid())};
+        }
+        // CANONICAL-TENSOR-ORDER: layernorm tensor order is the
+        // layernorm_attributes.fbs INPUT-field declaration order (x, scale, bias,
+        // epsilon); the output fields y/mean/inv_variance and the scalar attrs
+        // (normalized_dim_count, forward_phase) are dropped; the comparison is
+        // POSITIONAL. epsilon is a real UID-bearing value-tensor (dims {1}), NOT a
+        // dropped scalar, so it is the fourth positional input. This mirrors the
+        // frontend writer/selector hipdnn_frontend::detail::getMatchKeyTensors in
+        // frontend/include/hipdnn_frontend/detail/GraphMatchKey.hpp. Any change to
+        // this set/order MUST be mirrored there and vice versa.
+        else if(const auto* ln = node->attributes_as_LayernormAttributes())
+        {
+            op = "layernorm";
+            opTensors = {viewFor(ln->x_tensor_uid()),
+                         viewFor(ln->scale_tensor_uid()),
+                         viewFor(ln->bias_tensor_uid()),
+                         viewFor(ln->epsilon_tensor_uid())};
+        }
+        // CANONICAL-TENSOR-ORDER: batchnorm_inference tensor order is the
+        // batchnorm_inference_attributes.fbs INPUT-field declaration order
+        // (x, mean, inv_variance, scale, bias); the output field y is dropped;
+        // the comparison is POSITIONAL. All five are real UID-bearing physical
+        // buffers (no optionals), so it yields a 5-element view vector. This
+        // mirrors the frontend writer/selector
+        // hipdnn_frontend::detail::getMatchKeyTensors in
+        // frontend/include/hipdnn_frontend/detail/GraphMatchKey.hpp. Any change to
+        // this set/order MUST be mirrored there and vice versa.
+        else if(const auto* bnInf = node->attributes_as_BatchnormInferenceAttributes())
+        {
+            op = "batchnorm_inference";
+            opTensors = {viewFor(bnInf->x_tensor_uid()),
+                         viewFor(bnInf->mean_tensor_uid()),
+                         viewFor(bnInf->inv_variance_tensor_uid()),
+                         viewFor(bnInf->scale_tensor_uid()),
+                         viewFor(bnInf->bias_tensor_uid())};
+        }
+        // CANONICAL-TENSOR-ORDER: batchnorm_training tensor order is the
+        // batchnorm_attributes.fbs INPUT-field declaration order
+        // (x, scale, bias, epsilon); the output fields y/mean/inv_variance and
+        // the nullable running-stats fields are dropped; the comparison is
+        // POSITIONAL. epsilon is a real UID-bearing value-tensor (dims {1}), NOT
+        // a dropped scalar, so it is the fourth positional input. This mirrors
+        // the frontend writer/selector
+        // hipdnn_frontend::detail::getMatchKeyTensors in
+        // frontend/include/hipdnn_frontend/detail/GraphMatchKey.hpp. Any change to
+        // this set/order MUST be mirrored there and vice versa.
+        else if(const auto* bnTrain = node->attributes_as_BatchnormAttributes())
+        {
+            op = "batchnorm_training";
+            opTensors = {viewFor(bnTrain->x_tensor_uid()),
+                         viewFor(bnTrain->scale_tensor_uid()),
+                         viewFor(bnTrain->bias_tensor_uid()),
+                         viewFor(bnTrain->epsilon_tensor_uid())};
+        }
+        // CANONICAL-TENSOR-ORDER: batchnorm_backward tensor order is the
+        // batchnorm_backward_attributes.fbs REQUIRED INPUT-field declaration
+        // order (dy, x, scale); the output gradient fields (dx/dscale/dbias), the
+        // nullable mean/inv_variance inputs, and the peer-stats vector are
+        // dropped; the comparison is POSITIONAL. This mirrors the frontend
+        // writer/selector hipdnn_frontend::detail::getMatchKeyTensors in
+        // frontend/include/hipdnn_frontend/detail/GraphMatchKey.hpp. Any change to
+        // this set/order MUST be mirrored there and vice versa.
+        else if(const auto* bnBwd = node->attributes_as_BatchnormBackwardAttributes())
+        {
+            op = "batchnorm_backward";
+            opTensors = {viewFor(bnBwd->dy_tensor_uid()),
+                         viewFor(bnBwd->x_tensor_uid()),
+                         viewFor(bnBwd->scale_tensor_uid())};
+        }
+#ifdef HIPDNN_ENABLE_SDPA
+        // CANONICAL-TENSOR-ORDER: sdpa_fwd tensor order is the
+        // sdpa_attributes.fbs REQUIRED INPUT fields (q, k, v); the output field o
+        // and every optional input/output field are dropped; the comparison is
+        // POSITIONAL. sdpa_fwd is a 3-input op, so it yields a 3-element view
+        // vector. This mirrors the frontend writer/selector
+        // hipdnn_frontend::detail::getMatchKeyTensors in
+        // frontend/include/hipdnn_frontend/detail/GraphMatchKey.hpp. Any change to
+        // this set/order MUST be mirrored there and vice versa.
+        else if(const auto* sdpa = node->attributes_as_SdpaAttributes())
+        {
+            op = "sdpa_fwd";
+            opTensors = {viewFor(sdpa->q_tensor_uid()),
+                         viewFor(sdpa->k_tensor_uid()),
+                         viewFor(sdpa->v_tensor_uid())};
+        }
+        // CANONICAL-TENSOR-ORDER: sdpa_bwd tensor order is the
+        // sdpa_backward_attributes.fbs REQUIRED INPUT fields (q, k, v, o, dO,
+        // stats) in declaration order; the output gradient fields (dq, dk, dv)
+        // and every optional input/output field are dropped; the comparison is
+        // POSITIONAL. sdpa_bwd is a 6-input op, so it yields a 6-element view
+        // vector. This mirrors the frontend writer/selector
+        // hipdnn_frontend::detail::getMatchKeyTensors in
+        // frontend/include/hipdnn_frontend/detail/GraphMatchKey.hpp. Any change to
+        // this set/order MUST be mirrored there and vice versa.
+        else if(const auto* sdpaBwd = node->attributes_as_SdpaBackwardAttributes())
+        {
+            op = "sdpa_bwd";
+            opTensors = {viewFor(sdpaBwd->q_tensor_uid()),
+                         viewFor(sdpaBwd->k_tensor_uid()),
+                         viewFor(sdpaBwd->v_tensor_uid()),
+                         viewFor(sdpaBwd->o_tensor_uid()),
+                         viewFor(sdpaBwd->do_tensor_uid()),
+                         viewFor(sdpaBwd->stats_tensor_uid())};
+        }
+#endif
+        // CANONICAL-TENSOR-ORDER: pointwise tensor order is the
+        // pointwise_attributes.fbs INPUT-field declaration order with the output
+        // field (out_0) dropped; the comparison is POSITIONAL. The required-input
+        // count is mode-dependent, so the op string and tensor set are BOTH
+        // derived from the SAME arity classifier
+        // (hipdnn_flatbuffers_sdk::utilities::isUnaryPointwiseMode /
+        // isBinaryPointwiseMode) the frontend mirrors with
+        // hipdnn_frontend::is{Unary,Binary}PointwiseMode, so both sides agree on
+        // arity by construction:
+        //   - pointwise_unary  → (in_0)
+        //   - pointwise_binary → (in_0, in_1)
+        // Ternary is intentionally NOT dispatched here (no factory/functor), so a
+        // ternary pointwise node is left unmatched. This mirrors the frontend
+        // writer/selector hipdnn_frontend::detail::getMatchKeyTensors in
+        // frontend/include/hipdnn_frontend/detail/GraphMatchKey.hpp. Any change to
+        // a per-arity set/order here MUST be mirrored there and vice versa.
+        else if(const auto* pw = node->attributes_as_PointwiseAttributes())
+        {
+            const auto mode = pw->operation();
+            if(hipdnn_flatbuffers_sdk::utilities::isUnaryPointwiseMode(mode))
+            {
+                op = "pointwise_unary";
+                opTensors = {viewFor(pw->in_0_tensor_uid())};
+            }
+            else if(hipdnn_flatbuffers_sdk::utilities::isBinaryPointwiseMode(mode))
+            {
+                op = "pointwise_binary";
+                // in_1 is Optional<int64_t> in the flatbuffer but is always
+                // present for a binary mode (the writer emits it); deref after the
+                // classifier confirms binary arity.
+                opTensors
+                    = {viewFor(pw->in_0_tensor_uid()), viewFor(pw->in_1_tensor_uid().value())};
+            }
         }
 
-        if(op == nullptr || a == nullptr || b == nullptr)
+        // Require the op and at least its first required input present. Each op
+        // pushes its own required-input count (pointwise_unary=1, conv/matmul=2,
+        // sdpa_fwd=3, rmsnorm=3, layernorm=4, sdpa_bwd=6); a null leading tensor
+        // or an empty accumulator means the node is malformed/unindexed → skip.
+        if(op == nullptr || opTensors.empty() || opTensors[0] == nullptr)
         {
             continue;
         }
 
-        const std::vector<TensorView> views{buildView(a), buildView(b)};
+        // Build the positional view vector from every required tensor that
+        // resolved; a null trailing tensor is dropped (matching prior behavior).
+        std::vector<TensorView> views;
+        views.reserve(opTensors.size());
+        for(const auto* t : opTensors)
+        {
+            if(t != nullptr)
+            {
+                views.push_back(buildView(t));
+            }
+        }
         auto match = config.matchOperation(op, views);
         if(match.has_value())
         {

@@ -127,7 +127,8 @@ TEST(TestAutotuneFileWriter, BuildOverrideEntryBasic)
     EXPECT_EQ(entry["tensors"][1]["dim"], std::vector<int64_t>({64, 3, 7, 7}));
     EXPECT_EQ(entry["tensors"][0]["stride"], std::vector<int64_t>({150528, 50176, 224, 1}));
     EXPECT_EQ(entry["tensors"][1]["stride"], std::vector<int64_t>({147, 49, 7, 1}));
-    EXPECT_FALSE(entry.contains("knobs")); // No knobs → field absent
+    ASSERT_TRUE(entry.contains("autotune_metadata"));
+    EXPECT_FALSE(entry["autotune_metadata"].contains("knobs")); // No knobs → field absent
 }
 
 TEST(TestAutotuneFileWriter, BuildOverrideEntryWithKnobs)
@@ -141,12 +142,13 @@ TEST(TestAutotuneFileWriter, BuildOverrideEntryWithKnobs)
 
     auto entry = buildOverrideEntry(result, "conv_fprop", tensorDims, tensorStrides);
 
-    ASSERT_TRUE(entry.contains("knobs"));
-    ASSERT_EQ(entry["knobs"].size(), 2u);
-    EXPECT_EQ(entry["knobs"][0]["knob_id"], "TILE_SIZE");
-    EXPECT_EQ(entry["knobs"][0]["value"], 128);
-    EXPECT_EQ(entry["knobs"][1]["knob_id"], "SPLIT_K");
-    EXPECT_EQ(entry["knobs"][1]["value"], 2);
+    ASSERT_TRUE(entry.contains("autotune_metadata"));
+    ASSERT_TRUE(entry["autotune_metadata"].contains("knobs"));
+    ASSERT_EQ(entry["autotune_metadata"]["knobs"].size(), 2u);
+    EXPECT_EQ(entry["autotune_metadata"]["knobs"][0]["knob_id"], "TILE_SIZE");
+    EXPECT_EQ(entry["autotune_metadata"]["knobs"][0]["value"], 128);
+    EXPECT_EQ(entry["autotune_metadata"]["knobs"][1]["knob_id"], "SPLIT_K");
+    EXPECT_EQ(entry["autotune_metadata"]["knobs"][1]["value"], 2);
 }
 
 TEST(TestAutotuneFileWriter, BuildOverrideEntryWithMetadata)
@@ -380,12 +382,13 @@ TEST(TestAutotuneFileWriter, RoundTripWriteThenLoad)
     EXPECT_EQ(entry["tensors"][1]["dim"], std::vector<int64_t>({64, 3, 7, 7}));
 
     // Verify knobs round-tripped correctly
-    ASSERT_TRUE(entry.contains("knobs"));
-    ASSERT_EQ(entry["knobs"].size(), 2u);
+    ASSERT_TRUE(entry.contains("autotune_metadata"));
+    ASSERT_TRUE(entry["autotune_metadata"].contains("knobs"));
+    ASSERT_EQ(entry["autotune_metadata"]["knobs"].size(), 2u);
 
     bool foundTileSize = false;
     bool foundSplitK = false;
-    for(const auto& knob : entry["knobs"])
+    for(const auto& knob : entry["autotune_metadata"]["knobs"])
     {
         const auto knobId = knob["knob_id"].get<std::string>();
         if(knobId == "TILE_SIZE")
@@ -427,7 +430,8 @@ TEST(TestAutotuneFileWriter, RoundTripNoKnobs)
     EXPECT_EQ(entry["engine_name"], "MIOPEN_ENGINE");
     ASSERT_EQ(entry["tensors"].size(), 1u);
     EXPECT_EQ(entry["tensors"][0]["dim"], std::vector<int64_t>({1, 3, 224, 224}));
-    EXPECT_FALSE(entry.contains("knobs"));
+    ASSERT_TRUE(entry.contains("autotune_metadata"));
+    EXPECT_FALSE(entry["autotune_metadata"].contains("knobs"));
 }
 
 // ── Strategy/Mode String Tests ──────────────────────────────────────────────

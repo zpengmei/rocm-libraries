@@ -62,6 +62,16 @@ add_executable(
     IntegrationRMSNormBackwardDescriptorLowering.cpp
     IntegrationRMSNormBackwardDescriptorLifting.cpp
     IntegrationAutotuneCompiledPlanPath.cpp
+    IntegrationAutotuneConfigRoundTrip.cpp
+    IntegrationAutotuneConfigRoundTripBatchnormBackward.cpp
+    IntegrationAutotuneConfigRoundTripBatchnormInference.cpp
+    IntegrationAutotuneConfigRoundTripBatchnormTraining.cpp
+    IntegrationAutotuneConfigRoundTripLayernorm.cpp
+    IntegrationAutotuneConfigRoundTripMatmul.cpp
+    IntegrationAutotuneConfigRoundTripPointwiseBinary.cpp
+    IntegrationAutotuneConfigRoundTripPointwiseUnary.cpp
+    IntegrationAutotuneConfigRoundTripRmsnorm.cpp
+    IntegrationAutotuneConfigRoundTripUnsupportedOp.cpp
     IntegrationAutotuneEndToEnd.cpp
     IntegrationAutotuneExhaustive.cpp
     IntegrationAutotunePersistence.cpp
@@ -76,6 +86,8 @@ add_executable(
     $<$<BOOL:${HIPDNN_ENABLE_SDPA}>:IntegrationSdpaBwdLifting.cpp>
     $<$<BOOL:${HIPDNN_ENABLE_SDPA}>:IntegrationSdpaFwdDescriptorLifting.cpp>
     $<$<BOOL:${HIPDNN_ENABLE_SDPA}>:IntegrationSdpaFwdDescriptorLowering.cpp>
+    $<$<BOOL:${HIPDNN_ENABLE_SDPA}>:IntegrationAutotuneConfigRoundTripSdpaFwd.cpp>
+    $<$<BOOL:${HIPDNN_ENABLE_SDPA}>:IntegrationAutotuneConfigRoundTripSdpaBwd.cpp>
 )
 
 target_compile_options(hipdnn_public_frontend_tests PRIVATE ${HIPDNN_WARNING_COMPILE_OPTIONS})
