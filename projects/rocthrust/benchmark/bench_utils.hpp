@@ -26,7 +26,7 @@
 
 #include <thrust/execution_policy.h>
 
-#include "common/types.hpp" // IWYU pragma: export
+#include "types.hpp" // IWYU pragma: export
 #include "custom_reporter.hpp" // IWYU pragma: export
 #include "generation_utils.hpp" // IWYU pragma: export
 #include "thrust_compat.hpp" // IWYU pragma: export

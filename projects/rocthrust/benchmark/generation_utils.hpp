@@ -24,7 +24,7 @@
 #define ROCTHRUST_BENCHMARKS_BENCH_UTILS_GENERATION_UTILS_HPP_
 
 // Utils
-#include "common/types.hpp"
+#include "types.hpp"
 
 // Thrust
 #include <thrust/detail/config.h>

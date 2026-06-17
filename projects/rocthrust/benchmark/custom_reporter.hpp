@@ -24,7 +24,7 @@
 #define ROCTHRUST_BENCHMARKS_BENCH_UTILS_CUSTOM_REPORTER_HPP_
 
 // Utils
-#include "common/types.hpp"
+#include "types.hpp"
 
 // STL
 #include <algorithm>
