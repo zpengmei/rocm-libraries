@@ -24,12 +24,12 @@ struct basic
   template <typename T, typename Policy>
   float64_t run(thrust::device_vector<T>& a, thrust::device_vector<T>& b, Policy policy)
   {
-    bench_utils::do_not_optimize(thrust::equal(policy, a.begin(), a.end(), b.begin()));
+    thrust::equal(policy, a.begin(), a.end(), b.begin());
 
     bench_utils::gpu_timer d_timer;
 
     d_timer.start(0);
-    bench_utils::do_not_optimize(thrust::equal(policy, a.begin(), a.end(), b.begin()));
+    thrust::equal(policy, a.begin(), a.end(), b.begin());
     d_timer.stop(0);
 
     return d_timer.get_duration();

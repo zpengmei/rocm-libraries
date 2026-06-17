@@ -47,12 +47,12 @@ struct basic
   template <typename T, typename Policy>
   float64_t run(thrust::device_vector<T>& in, Policy policy)
   {
-    bench_utils::do_not_optimize(thrust::reduce(policy, in.begin(), in.end()));
+    thrust::reduce(policy, in.begin(), in.end());
 
     bench_utils::gpu_timer d_timer;
 
     d_timer.start(0);
-    bench_utils::do_not_optimize(thrust::reduce(policy, in.begin(), in.end()));
+    thrust::reduce(policy, in.begin(), in.end());
     d_timer.stop(0);
 
     return d_timer.get_duration();

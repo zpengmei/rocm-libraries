@@ -350,20 +350,6 @@ struct max_t
   }
 };
 
-namespace detail
-{
-void do_not_optimize(const void* ptr)
-{
-  (void) ptr;
-}
-} // namespace detail
-
-template <class T>
-void do_not_optimize(const T& val)
-{
-  detail::do_not_optimize(&val);
-}
-
 auto StatisticsSum = [](const std::vector<double>& v) {
   return std::accumulate(v.begin(), v.end(), 0.0);
 };
