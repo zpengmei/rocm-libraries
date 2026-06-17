@@ -54,9 +54,8 @@
 
 namespace bench_utils
 {
-#if (THRUST_DEVICE_COMPILER == THRUST_DEVICE_COMPILER_HIP) || (THRUST_DEVICE_SYSTEM == THRUST_DEVICE_SYSTEM_CUDA)
 
-#  define HIP_CHECK(condition)                                                     \
+#define HIP_CHECK(condition)                                                       \
     {                                                                              \
       hipError_t error = condition;                                                \
       if (error != hipSuccess)                                                     \
@@ -65,147 +64,6 @@ namespace bench_utils
         exit(error);                                                               \
       }                                                                            \
     }
-
-/// \brief Timer for measuring time from the device's side
-class gpu_timer
-{
-  hipEvent_t m_start;
-  hipEvent_t m_stop;
-
-public:
-  __forceinline__ gpu_timer()
-  {
-    HIP_CHECK(hipEventCreate(&m_start));
-    HIP_CHECK(hipEventCreate(&m_stop));
-  }
-
-  __forceinline__ ~gpu_timer()
-  {
-    HIP_CHECK(hipEventDestroy(m_start));
-    HIP_CHECK(hipEventDestroy(m_stop));
-  }
-
-  // move-only
-  gpu_timer(const gpu_timer&)            = delete;
-  gpu_timer(gpu_timer&&)                 = default;
-  gpu_timer& operator=(const gpu_timer&) = delete;
-  gpu_timer& operator=(gpu_timer&&)      = default;
-
-  __forceinline__ void start(hipStream_t stream)
-  {
-    HIP_CHECK(hipEventRecord(m_start, stream));
-  }
-
-  __forceinline__ void stop(hipStream_t stream)
-  {
-    HIP_CHECK(hipEventRecord(m_stop, stream));
-  }
-
-  [[nodiscard]] __forceinline__ bool ready() const
-  {
-    const hipError_t state = hipEventQuery(m_stop);
-    if (state == hipErrorNotReady)
-    {
-      return false;
-    }
-    HIP_CHECK(state);
-    return true;
-  }
-
-  // In seconds:
-  [[nodiscard]] __forceinline__ float64_t get_duration() const
-  {
-    HIP_CHECK(hipEventSynchronize(m_stop));
-    float32_t elapsed_time;
-    // According to docs, this is in ms with a resolution of ~1 microseconds.
-    HIP_CHECK(hipEventElapsedTime(&elapsed_time, m_start, m_stop));
-    return elapsed_time / 1000.0;
-  }
-};
-#elif (defined(__NVCC__) || defined(_NVHPC_CUDA)                                    \
-       || (defined(__CUDA__) && THRUST_HOST_COMPILER == THRUST_HOST_COMPILER_CLANG) \
-       || THRUST_HOST_COMPILER == THRUST_HOST_COMPILER_NVRTC)
-
-#  define CUDA_SAFE_CALL_NO_SYNC(call)                                                                              \
-    do                                                                                                              \
-    {                                                                                                               \
-      cudaError err = call;                                                                                         \
-      if (cudaSuccess != err)                                                                                       \
-      {                                                                                                             \
-        fprintf(stderr, "CUDA error in file '%s' in line %i : %s.\n", __FILE__, __LINE__, cudaGetErrorString(err)); \
-        exit(EXIT_FAILURE);                                                                                         \
-      }                                                                                                             \
-    } while (0)
-
-#  define CUDA_SAFE_CALL(call)                                                                                      \
-    do                                                                                                              \
-    {                                                                                                               \
-      CUDA_SAFE_CALL_NO_SYNC(call);                                                                                 \
-      cudaError err = cudaDeviceSynchronize();                                                                      \
-      if (cudaSuccess != err)                                                                                       \
-      {                                                                                                             \
-        fprintf(stderr, "CUDA error in file '%s' in line %i : %s.\n", __FILE__, __LINE__, cudaGetErrorString(err)); \
-        exit(EXIT_FAILURE);                                                                                         \
-      }                                                                                                             \
-    } while (0)
-
-class gpu_timer
-{
-  cudaEvent_t start_;
-  cudaEvent_t stop_;
-
-public:
-  __forceinline__ gpu_timer()
-  {
-    CUDA_SAFE_CALL(cudaEventCreate(&start_));
-    CUDA_SAFE_CALL(cudaEventCreate(&stop_));
-  }
-
-  __forceinline__ ~gpu_timer()
-  {
-    CUDA_SAFE_CALL(cudaEventDestroy(start_));
-    CUDA_SAFE_CALL(cudaEventDestroy(stop_));
-  }
-
-  // move-only
-  gpu_timer(const gpu_timer&)            = delete;
-  gpu_timer(gpu_timer&&)                 = default;
-  gpu_timer& operator=(const gpu_timer&) = delete;
-  gpu_timer& operator=(gpu_timer&&)      = default;
-
-  __forceinline__ void start(cudaStream_t stream)
-  {
-    CUDA_SAFE_CALL(cudaEventRecord(start_, stream));
-  }
-
-  __forceinline__ void stop(cudaStream_t stream)
-  {
-    CUDA_SAFE_CALL(cudaEventRecord(m_stop, stream));
-  }
-
-  [[nodiscard]] __forceinline__ bool ready() const
-  {
-    const cudaError_t state = cudaEventQuery(m_stop);
-    if (state == cudaErrorNotReady)
-    {
-      return false;
-    }
-    CUDA_SAFE_CALL(state);
-    return true;
-  }
-
-  // In seconds:
-  [[nodiscard]] __forceinline__ nvbench::float64_t get_duration() const
-  {
-    CUDA_SAFE_CALL(cudaEventSynchronize(m_stop));
-    float elapsed_time;
-    // According to docs, this is in ms with a resolution of ~0.5 microseconds.
-    CUDA_SAFE_CALL(cudaEventElapsedTime(&elapsed_time, m_start, m_stop));
-    return elapsed_time / 1000.0;
-  }
-};
-
-#endif
 
 //// \brief Gets the peak global memory bus bandwidth in bytes/sec.
 std::size_t get_global_memory_bus_bandwidth(int device_id)
