@@ -46,7 +46,7 @@
 struct basic
 {
   template <typename T, typename Policy = thrust::detail::device_t>
-  float64_t
+  double
   run(thrust::device_vector<T>& data, thrust::device_vector<bool>& result, const std::size_t elements, Policy policy)
   {
     thrust::binary_search(
@@ -85,7 +85,7 @@ void run_benchmark(
 
   for (auto _ : state)
   {
-    float64_t duration = benchmark.template run<T>(data, result, elements, policy(alloc));
+    double duration = benchmark.template run<T>(data, result, elements, policy(alloc));
     state.SetIterationTime(duration);
     gpu_times.push_back(duration);
   }

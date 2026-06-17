@@ -46,8 +46,7 @@
 struct lower_bound
 {
   template <typename T, typename Policy>
-  float64_t
-  run(thrust::device_vector<T>& data, thrust::device_vector<T>& result, const std::size_t elements, Policy policy)
+  double run(thrust::device_vector<T>& data, thrust::device_vector<T>& result, const std::size_t elements, Policy policy)
   {
     thrust::lower_bound(
       policy, data.begin(), data.begin() + elements, data.begin() + elements, data.end(), result.begin());
@@ -85,7 +84,7 @@ void run_benchmark(
 
   for (auto _ : state)
   {
-    float64_t duration = benchmark.template run<T>(data, result, elements, policy(alloc));
+    double duration = benchmark.template run<T>(data, result, elements, policy(alloc));
     state.SetIterationTime(duration);
     gpu_times.push_back(duration);
   }

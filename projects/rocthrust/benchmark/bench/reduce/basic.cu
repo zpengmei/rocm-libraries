@@ -45,7 +45,7 @@
 struct basic
 {
   template <typename T, typename Policy>
-  float64_t run(thrust::device_vector<T>& in, Policy policy)
+  double run(thrust::device_vector<T>& in, Policy policy)
   {
     thrust::reduce(policy, in.begin(), in.end());
 
@@ -76,7 +76,7 @@ void run_benchmark(benchmark::State& state, const std::size_t elements, const st
 
   for (auto _ : state)
   {
-    float64_t duration = benchmark.template run<T>(in, policy(alloc));
+    double duration = benchmark.template run<T>(in, policy(alloc));
     state.SetIterationTime(duration);
     gpu_times.push_back(duration);
   }
@@ -118,8 +118,8 @@ void add_benchmarks(
 #ifndef _MSC_VER
   BENCHMARK_TYPE(int128_t)
 #endif
-  BENCHMARK_TYPE(float32_t)
-  BENCHMARK_TYPE(float64_t)
+  BENCHMARK_TYPE(float)
+  BENCHMARK_TYPE(double)
 
   benchmarks.insert(benchmarks.end(), bs.begin(), bs.end());
 }

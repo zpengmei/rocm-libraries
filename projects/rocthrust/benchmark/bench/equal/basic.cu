@@ -22,7 +22,7 @@
 struct basic
 {
   template <typename T, typename Policy>
-  float64_t run(thrust::device_vector<T>& a, thrust::device_vector<T>& b, Policy policy)
+  double run(thrust::device_vector<T>& a, thrust::device_vector<T>& b, Policy policy)
   {
     thrust::equal(policy, a.begin(), a.end(), b.begin());
 
@@ -40,7 +40,7 @@ template <class Benchmark, class T>
 void run_benchmark(benchmark::State& state,
                    const std::size_t elements,
                    const std::string, /*seed_type*/
-                   const float64_t common_prefix_ratio)
+                   const double common_prefix_ratio)
 {
   // Benchmark object
   Benchmark benchmark{};
@@ -60,7 +60,7 @@ void run_benchmark(benchmark::State& state,
 
   for (auto _ : state)
   {
-    float64_t duration = benchmark.template run<T>(a, b, policy(alloc));
+    double duration = benchmark.template run<T>(a, b, policy(alloc));
     state.SetIterationTime(duration);
     gpu_times.push_back(duration);
   }

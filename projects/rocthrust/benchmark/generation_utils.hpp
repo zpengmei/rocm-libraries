@@ -125,7 +125,7 @@ float get_entropy_percentage(int entropy_reduction)
 }
 
 template <typename T>
-T value_from_entropy(float64_t percentage)
+T value_from_entropy(double percentage)
 {
   if (percentage == 100.0)
   {

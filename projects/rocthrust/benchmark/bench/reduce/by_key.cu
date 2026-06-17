@@ -46,11 +46,11 @@
 struct by_key
 {
   template <typename KeyT, typename ValueT, typename Policy>
-  float64_t run(thrust::device_vector<KeyT>& in_keys,
-                thrust::device_vector<ValueT>& in_vals,
-                thrust::device_vector<KeyT>& out_keys,
-                thrust::device_vector<ValueT>& out_vals,
-                Policy policy)
+  double run(thrust::device_vector<KeyT>& in_keys,
+             thrust::device_vector<ValueT>& in_vals,
+             thrust::device_vector<KeyT>& out_keys,
+             thrust::device_vector<ValueT>& out_vals,
+             Policy policy)
   {
     thrust::reduce_by_key(policy, in_keys.begin(), in_keys.end(), in_vals.begin(), out_keys.begin(), out_vals.begin());
 
@@ -110,7 +110,7 @@ void run_benchmark(
 
   for (auto _ : state)
   {
-    float64_t duration = benchmark.template run<KeyT, ValueT>(in_keys, in_vals, out_keys, out_vals, policy(alloc));
+    double duration = benchmark.template run<KeyT, ValueT>(in_keys, in_vals, out_keys, out_vals, policy(alloc));
     state.SetIterationTime(duration);
     gpu_times.push_back(duration);
   }
@@ -178,8 +178,8 @@ void add_benchmarks(
 #ifndef _MSC_VER
   BENCHMARK_KEY_TYPE(int128_t)
 #endif
-  BENCHMARK_KEY_TYPE(float32_t)
-  BENCHMARK_KEY_TYPE(float64_t)
+  BENCHMARK_KEY_TYPE(float)
+  BENCHMARK_KEY_TYPE(double)
   benchmarks.insert(benchmarks.end(), bs.begin(), bs.end());
 }
 

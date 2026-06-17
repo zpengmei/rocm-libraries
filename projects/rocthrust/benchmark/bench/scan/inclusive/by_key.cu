@@ -45,10 +45,10 @@
 struct by_key
 {
   template <typename KeyT, typename ValueT, typename Policy>
-  float64_t run(thrust::device_vector<KeyT>& keys,
-                thrust::device_vector<ValueT>& in_vals,
-                thrust::device_vector<ValueT>& out_vals,
-                Policy policy)
+  double run(thrust::device_vector<KeyT>& keys,
+             thrust::device_vector<ValueT>& in_vals,
+             thrust::device_vector<ValueT>& out_vals,
+             Policy policy)
   {
     thrust::inclusive_scan_by_key(policy, keys.cbegin(), keys.cend(), in_vals.cbegin(), out_vals.begin());
 
@@ -84,7 +84,7 @@ void run_benchmark(benchmark::State& state, const std::size_t elements, const st
 
   for (auto _ : state)
   {
-    float64_t duration = benchmark.template run<KeyT, ValueT>(keys, in_vals, out_vals, policy(alloc));
+    double duration = benchmark.template run<KeyT, ValueT>(keys, in_vals, out_vals, policy(alloc));
     state.SetIterationTime(duration);
     gpu_times.push_back(duration);
   }
@@ -141,8 +141,8 @@ void add_benchmarks(
 #ifndef _MSC_VER
   BENCHMARK_KEY_TYPE(int128_t)
 #endif
-  BENCHMARK_KEY_TYPE(float32_t)
-  BENCHMARK_KEY_TYPE(float64_t)
+  BENCHMARK_KEY_TYPE(float)
+  BENCHMARK_KEY_TYPE(double)
   benchmarks.insert(benchmarks.end(), bs.begin(), bs.end());
 }
 

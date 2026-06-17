@@ -48,7 +48,7 @@
 struct basic
 {
   template <typename T, typename OpT, typename Policy>
-  float64_t run(thrust::device_vector<T>& input,
+  double run(thrust::device_vector<T>& input,
                 thrust::device_vector<T>& output,
                 const std::size_t elements_in_A,
                 const OpT op,
@@ -108,7 +108,7 @@ void run_benchmark(benchmark::State& state,
 
   for (auto _ : state)
   {
-    float64_t duration = benchmark.template run<T>(input, output, elements_in_A, op, policy(alloc));
+    double duration = benchmark.template run<T>(input, output, elements_in_A, op, policy(alloc));
     state.SetIterationTime(duration);
     gpu_times.push_back(duration);
   }

@@ -45,7 +45,7 @@
 struct basic
 {
   template <typename T, typename Policy>
-  float64_t run(thrust::device_vector<T>& input, thrust::device_vector<T>& output, Policy policy)
+  double run(thrust::device_vector<T>& input, thrust::device_vector<T>& output, Policy policy)
   {
     thrust::adjacent_difference(policy, input.cbegin(), input.cend(), output.begin());
 
@@ -79,7 +79,7 @@ void run_benchmark(benchmark::State& state, const std::size_t elements, const st
 
   for (auto _ : state)
   {
-    float64_t duration = benchmark.template run<T>(input, output, policy(alloc));
+    double duration = benchmark.template run<T>(input, output, policy(alloc));
     state.SetIterationTime(duration);
     gpu_times.push_back(duration);
   }
@@ -96,7 +96,7 @@ void run_benchmark(benchmark::State& state, const std::size_t elements, const st
 #define CREATE_BENCHMARK(T, Elements)                                                                      \
   benchmark::RegisterBenchmark(                                                                            \
     bench_utils::bench_naming::format_name("{algo:adjacent_difference,subalgo:" + name + ",input_type:" #T \
-                                           + ",elements:" + bench_utils::format_pow2(Elements))           \
+                                           + ",elements:" + bench_utils::format_pow2(Elements))            \
       .c_str(),                                                                                            \
     run_benchmark<Benchmark, T>,                                                                           \
     Elements,                                                                                              \
@@ -118,8 +118,8 @@ void add_benchmarks(
   BENCHMARK_TYPE(int16_t)
   BENCHMARK_TYPE(int32_t)
   BENCHMARK_TYPE(int64_t)
-  BENCHMARK_TYPE(float32_t)
-  BENCHMARK_TYPE(float64_t)
+  BENCHMARK_TYPE(float)
+  BENCHMARK_TYPE(double)
   benchmarks.insert(benchmarks.end(), bs.begin(), bs.end());
 }
 

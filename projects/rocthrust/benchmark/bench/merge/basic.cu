@@ -46,7 +46,7 @@
 struct basic
 {
   template <typename T, typename Policy>
-  float64_t
+  double
   run(thrust::device_vector<T>& in, thrust::device_vector<T>& out, const std::size_t elements_in_lhs, Policy policy)
   {
     thrust::merge(
@@ -93,7 +93,7 @@ void run_benchmark(benchmark::State& state,
 
   for (auto _ : state)
   {
-    float64_t duration = benchmark.template run<T>(in, out, elements_in_lhs, policy(alloc));
+    double duration = benchmark.template run<T>(in, out, elements_in_lhs, policy(alloc));
     state.SetIterationTime(duration);
     gpu_times.push_back(duration);
   }

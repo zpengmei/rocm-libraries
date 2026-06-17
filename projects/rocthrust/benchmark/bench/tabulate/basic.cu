@@ -59,7 +59,7 @@ struct seg_size_t
 struct basic
 {
   template <typename T, typename OpT, typename Policy>
-  float64_t run(thrust::device_vector<T>& output, OpT op, Policy policy)
+  double run(thrust::device_vector<T>& output, OpT op, Policy policy)
   {
     thrust::tabulate(policy, output.begin(), output.end(), op);
 
@@ -93,7 +93,7 @@ void run_benchmark(benchmark::State& state, const std::size_t elements, const st
 
   for (auto _ : state)
   {
-    float64_t duration = benchmark.template run<T>(output, op, policy(alloc));
+    double duration = benchmark.template run<T>(output, op, policy(alloc));
     state.SetIterationTime(duration);
     gpu_times.push_back(duration);
   }

@@ -57,8 +57,7 @@ struct less_then_t
 struct _if
 {
   template <typename T, typename Policy>
-  float64_t
-  run(thrust::device_vector<T>& input, thrust::device_vector<T>& output, less_then_t<T> select_op, Policy policy)
+  double run(thrust::device_vector<T>& input, thrust::device_vector<T>& output, less_then_t<T> select_op, Policy policy)
   {
     thrust::copy_if(policy, input.cbegin(), input.cend(), output.begin(), select_op);
 
@@ -117,7 +116,7 @@ void run_benchmark(
 
   for (auto _ : state)
   {
-    float64_t duration = benchmark.template run<T>(input, output, select_op, policy(alloc));
+    double duration = benchmark.template run<T>(input, output, select_op, policy(alloc));
     state.SetIterationTime(duration);
     gpu_times.push_back(duration);
   }

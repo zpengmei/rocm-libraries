@@ -45,7 +45,7 @@
 struct keys
 {
   template <typename T, typename Policy>
-  float64_t run(thrust::device_vector<T>& input, Policy policy)
+  double run(thrust::device_vector<T>& input, Policy policy)
   {
     thrust::device_vector<T> vec(input.size());
     thrust::sort(policy, vec.begin(), vec.end());
@@ -81,7 +81,7 @@ void run_benchmark(
 
   for (auto _ : state)
   {
-    float64_t duration = benchmark.template run<T>(input, policy(alloc));
+    double duration = benchmark.template run<T>(input, policy(alloc));
     state.SetIterationTime(duration);
     gpu_times.push_back(duration);
   }

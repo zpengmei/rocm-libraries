@@ -46,7 +46,7 @@
 struct basic
 {
   template <typename T, typename Policy>
-  float64_t run(thrust::device_vector<T>& data, const std::string rng_engine, Policy policy)
+  double run(thrust::device_vector<T>& data, const std::string rng_engine, Policy policy)
   {
     auto do_engine = [&](auto&& engine_constructor) {
       thrust::shuffle(policy, data.begin(), data.end(), engine_constructor());
@@ -107,7 +107,7 @@ void run_benchmark(
 
   for (auto _ : state)
   {
-    float64_t duration = benchmark.template run<T>(data, rng_engine, policy(alloc));
+    double duration = benchmark.template run<T>(data, rng_engine, policy(alloc));
     state.SetIterationTime(duration);
     gpu_times.push_back(duration);
   }

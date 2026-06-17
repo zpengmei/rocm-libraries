@@ -83,7 +83,7 @@ struct fib_t
 };
 
 template <typename... Args>
-float64_t bench_transform(Args&&... args)
+double bench_transform(Args&&... args)
 {
   bench_utils::caching_allocator_t alloc{}; // transform shouldn't allocate, but let's be consistent
   thrust::detail::device_t policy{};
@@ -100,7 +100,7 @@ float64_t bench_transform(Args&&... args)
 struct basic
 {
   template <typename T>
-  float64_t run(thrust::device_vector<T>& input, thrust::device_vector<T>& output)
+  double run(thrust::device_vector<T>& input, thrust::device_vector<T>& output)
   {
     fib_t<T, uint32_t> op{};
     return bench_transform(input.cbegin(), input.cend(), output.begin(), op);
@@ -127,7 +127,7 @@ void run_benchmark(benchmark::State& state, const std::size_t elements, const st
 
   for (auto _ : state)
   {
-    float64_t duration = benchmark.template run<T>(input, output);
+    double duration = benchmark.template run<T>(input, output);
     state.SetIterationTime(duration);
     gpu_times.push_back(duration);
   }
@@ -184,7 +184,7 @@ struct mul
   static constexpr size_t writes_per_item = 1;
 
   template <typename T>
-  static float64_t run(thrust::device_vector<T>, thrust::device_vector<T> b, thrust::device_vector<T> c)
+  static double run(thrust::device_vector<T>, thrust::device_vector<T> b, thrust::device_vector<T> c)
   {
     const T scalar = startScalar;
     return bench_transform(
@@ -199,7 +199,7 @@ struct add
   static constexpr size_t writes_per_item = 1;
 
   template <typename T>
-  static float64_t run(thrust::device_vector<T> a, thrust::device_vector<T> b, thrust::device_vector<T> c)
+  static double run(thrust::device_vector<T> a, thrust::device_vector<T> b, thrust::device_vector<T> c)
   {
     return bench_transform(
       a.begin(),
@@ -218,7 +218,7 @@ struct triad
   static constexpr size_t writes_per_item = 1;
 
   template <typename T>
-  static float64_t run(thrust::device_vector<T> a, thrust::device_vector<T> b, thrust::device_vector<T> c)
+  static double run(thrust::device_vector<T> a, thrust::device_vector<T> b, thrust::device_vector<T> c)
   {
     const T scalar = startScalar;
     return bench_transform(
@@ -238,7 +238,7 @@ struct nstream
   static constexpr size_t writes_per_item = 1;
 
   template <typename T>
-  static float64_t run(thrust::device_vector<T> a, thrust::device_vector<T> b, thrust::device_vector<T> c)
+  static double run(thrust::device_vector<T> a, thrust::device_vector<T> b, thrust::device_vector<T> c)
   {
     const T scalar = startScalar;
     return bench_transform(
@@ -258,7 +258,7 @@ struct nstream_stable
   static constexpr size_t writes_per_item = 1;
 
   template <typename T>
-  static float64_t run(thrust::device_vector<T> a, thrust::device_vector<T> b, thrust::device_vector<T> c)
+  static double run(thrust::device_vector<T> a, thrust::device_vector<T> b, thrust::device_vector<T> c)
   {
     const T* a_start = thrust::raw_pointer_cast(a.data());
     const T* b_start = thrust::raw_pointer_cast(b.data());
@@ -295,7 +295,7 @@ void run_babelstream(benchmark::State& state, const std::size_t n)
     thrust::fill(b.begin(), b.end(), startB);
     thrust::fill(c.begin(), c.end(), startC);
 
-    float64_t duration;
+    double duration;
     try
     {
       duration = Benchmark::template run<T>(a, b, c);

@@ -45,11 +45,11 @@
 struct by_key
 {
   template <typename KeyT, typename ValueT, typename Policy>
-  float64_t run(thrust::device_vector<KeyT>& in_keys,
-                thrust::device_vector<ValueT>& in_vals,
-                thrust::device_vector<KeyT>& out_keys,
-                thrust::device_vector<ValueT>& out_vals,
-                Policy policy)
+  double run(thrust::device_vector<KeyT>& in_keys,
+             thrust::device_vector<ValueT>& in_vals,
+             thrust::device_vector<KeyT>& out_keys,
+             thrust::device_vector<ValueT>& out_vals,
+             Policy policy)
   {
     bench_utils::gpu_timer d_timer;
 
@@ -102,7 +102,7 @@ void run_benchmark(
 
   for (auto _ : state)
   {
-    float64_t duration = benchmark.template run<KeyT, ValueT>(in_keys, in_vals, out_keys, out_vals, policy(alloc));
+    double duration = benchmark.template run<KeyT, ValueT>(in_keys, in_vals, out_keys, out_vals, policy(alloc));
     state.SetIterationTime(duration);
     gpu_times.push_back(duration);
   }
