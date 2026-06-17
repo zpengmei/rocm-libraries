@@ -41,9 +41,10 @@ struct for_each_benchmark : public primbench::benchmark_interface
     primbench::json meta() const override
   {
     return primbench::json{}
-      .add("algo", "adjacent_difference_basic")
-      .add("type", primbench::name<T>())
-      .add("items", m_items);
+      .add("algo", "adjacent_difference")
+      .add("subalgo", "basic")
+      .add("input_type", primbench::name<T>())
+      .add("elements", m_items);
   }
 
   void run(primbench::state& state) override
