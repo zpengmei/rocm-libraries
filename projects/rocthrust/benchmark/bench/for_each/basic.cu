@@ -50,12 +50,15 @@ struct for_each_benchmark : public primbench::benchmark_interface
 
     auto op = [] __device__ (T& x) { x = x * x; };
 
+    bench_utils::caching_allocator_t alloc{};
+    thrust::detail::device_t policy{};
+
     state.set_items(m_items);
     state.add_reads<T>(m_items);
     state.add_writes<T>(m_items);
 
     state.run([&] {
-      thrust::for_each(in.begin(), in.end(), op);
+      thrust::for_each(policy(alloc), in.begin(), in.end(), op);
     });
   }
 

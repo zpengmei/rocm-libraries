@@ -94,6 +94,9 @@ struct max_t
   }
 };
 
+/**
+ * This struct is used to reduce noise in benchmarks
+ */
 struct caching_allocator_t
 {
   using value_type = char;
