@@ -317,12 +317,12 @@ void run_babelstream(benchmark::State& state, const std::size_t n)
   state.counters["gpu_noise"] = gpu_cv;
 }
 
-#define CREATE_BABELSTREAM_BENCHMARK(T, Elements, Benchmark)                                             \
-  benchmark::RegisterBenchmark(                                                                          \
-    bench_utils::bench_naming::format_name(                                                              \
-      "{algo:transform,subalgo:" + name + "." + #Benchmark + ",input_type:" #T + ",elements:" + bench_utils::format_pow2(Elements)) \
-      .c_str(),                                                                                          \
-    run_babelstream<Benchmark, T>,                                                                       \
+#define CREATE_BABELSTREAM_BENCHMARK(T, Elements, Benchmark)                                                        \
+  benchmark::RegisterBenchmark(                                                                                     \
+    bench_utils::bench_naming::format_name("{algo:transform,subalgo:" + name + "." + #Benchmark + ",input_type:" #T \
+                                           + ",elements:" + bench_utils::format_pow2(Elements))                     \
+      .c_str(),                                                                                                     \
+    run_babelstream<Benchmark, T>,                                                                                  \
     Elements)
 
 // Different benchmarks use a different number of buffers. H200/B200 can fit 2^31 elements for all benchmarks and types.
@@ -352,7 +352,7 @@ void add_benchmarks(const std::string& name, std::vector<benchmark::internal::Be
   BENCHMARK_BABELSTREAM_TYPE(int16_t)
   BENCHMARK_BABELSTREAM_TYPE(float)
   BENCHMARK_BABELSTREAM_TYPE(double)
-#if THRUST_BENCHMARKS_HAVE_INT128_SUPPORT
+#ifndef _MSC_VER
   BENCHMARK_BABELSTREAM_TYPE(int128_t)
 #endif
   benchmarks.insert(benchmarks.end(), bs.begin(), bs.end());

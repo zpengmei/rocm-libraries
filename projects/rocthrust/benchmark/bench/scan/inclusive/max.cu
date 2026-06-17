@@ -119,7 +119,7 @@ void add_benchmarks(
   BENCHMARK_TYPE(int16_t)
   BENCHMARK_TYPE(int32_t)
   BENCHMARK_TYPE(int64_t)
-#if THRUST_BENCHMARKS_HAVE_INT128_SUPPORT
+#ifndef _MSC_VER
   BENCHMARK_TYPE(int128_t)
 #endif
   BENCHMARK_TYPE(float32_t)

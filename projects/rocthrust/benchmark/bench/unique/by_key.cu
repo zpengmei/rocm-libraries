@@ -138,7 +138,7 @@ void run_benchmark(
       BENCHMARK_ELEMENTS(key_type, value_type, size);                                                        \
   }
 
-#if THRUST_BENCHMARKS_HAVE_INT128_SUPPORT
+#ifndef _MSC_VER
 #  define BENCHMARK_KEY_TYPE(key_type)        \
     BENCHMARK_VALUE_TYPE(key_type, int8_t)    \
     BENCHMARK_VALUE_TYPE(key_type, uint8_t)   \
@@ -175,7 +175,7 @@ void add_benchmarks(
   BENCHMARK_KEY_TYPE(int16_t)
   BENCHMARK_KEY_TYPE(int32_t)
   BENCHMARK_KEY_TYPE(int64_t)
-#if THRUST_BENCHMARKS_HAVE_INT128_SUPPORT
+#ifndef _MSC_VER
   BENCHMARK_KEY_TYPE(int128_t)
 #endif
   benchmarks.insert(benchmarks.end(), bs.begin(), bs.end());

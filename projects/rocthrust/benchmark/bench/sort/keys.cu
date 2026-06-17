@@ -125,7 +125,7 @@ void add_benchmarks(
     BENCHMARK_TYPE_ENTROPY(int16_t, entropy_reduction)
     BENCHMARK_TYPE_ENTROPY(int32_t, entropy_reduction)
     BENCHMARK_TYPE_ENTROPY(int64_t, entropy_reduction)
-#if THRUST_BENCHMARKS_HAVE_INT128_SUPPORT
+#ifndef _MSC_VER
     BENCHMARK_TYPE_ENTROPY(int128_t, entropy_reduction)
 #endif
     BENCHMARK_TYPE_ENTROPY(float, entropy_reduction)

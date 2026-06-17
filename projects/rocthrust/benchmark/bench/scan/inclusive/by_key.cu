@@ -114,7 +114,7 @@ void run_benchmark(benchmark::State& state, const std::size_t elements, const st
     if ((sizeof(key_type) * size + sizeof(value_type) * size) <= bench_utils::system.devProp.totalGlobalMem) \
       bs.push_back(CREATE_BENCHMARK(key_type, value_type, size));                                            \
   }
-#if THRUST_BENCHMARKS_HAVE_INT128_SUPPORT
+#ifndef _MSC_VER
 #  define BENCHMARK_KEY_TYPE(key_type)      \
     BENCHMARK_VALUE_TYPE(key_type, int8_t)  \
     BENCHMARK_VALUE_TYPE(key_type, int16_t) \
@@ -138,7 +138,7 @@ void add_benchmarks(
   BENCHMARK_KEY_TYPE(int16_t)
   BENCHMARK_KEY_TYPE(int32_t)
   BENCHMARK_KEY_TYPE(int64_t)
-#if THRUST_BENCHMARKS_HAVE_INT128_SUPPORT
+#ifndef _MSC_VER
   BENCHMARK_KEY_TYPE(int128_t)
 #endif
   BENCHMARK_KEY_TYPE(float32_t)

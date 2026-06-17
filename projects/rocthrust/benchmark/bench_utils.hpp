@@ -26,7 +26,6 @@
 
 #include <thrust/execution_policy.h>
 
-#include "types.hpp" // IWYU pragma: export
 #include "generation_utils.hpp" // IWYU pragma: export
 
 /// This allows running rocThrust benchmarks with CCCL Thrust.
@@ -163,6 +162,49 @@ inline std::string format_pow2(size_t n)
   return "1 << " + std::to_string(k);
 }
 
+class large_data
+{
+public:
+  __host__ __device__ large_data()
+  {
+    data[0] = 0;
+  }
+  __host__ __device__ large_data(large_data const& val)
+  {
+    data[0] = val.data[0];
+  }
+  __host__ __device__ large_data(int n)
+  {
+    data[0] = static_cast<int8_t>(n);
+  }
+  large_data& __host__ __device__ operator=(large_data const& val)
+  {
+    data[0] = val.data[0];
+    return *this;
+  }
+  bool __host__ __device__ operator==(large_data const& val) const
+  {
+    return data[0] == val.data[0];
+  }
+  large_data& __host__ __device__ operator++()
+  {
+    ++data[0];
+    return *this;
+  }
+  __host__ __device__ operator int() const
+  {
+    return static_cast<int>(data[0]);
+  }
+
+  int8_t data[512];
+};
+
+template <class T>
+bool __host__ __device__ operator==(T const& lhs, large_data const& rhs)
+{
+  return static_cast<large_data>(lhs).data[0] == rhs.data[0];
+}
+
 struct sys_info
 {
   hipDeviceProp_t devProp;
@@ -183,7 +225,7 @@ PRIMBENCH_REGISTER_TYPE(int8_t, "i8")
 PRIMBENCH_REGISTER_TYPE(int16_t, "i16")
 PRIMBENCH_REGISTER_TYPE(int32_t, "i32")
 PRIMBENCH_REGISTER_TYPE(int64_t, "i64")
-#if THRUST_BENCHMARKS_HAVE_INT128_SUPPORT
+#ifndef _MSC_VER
 PRIMBENCH_REGISTER_TYPE(int128_t, "i128")
 #endif
 PRIMBENCH_REGISTER_TYPE(float, "f32")
