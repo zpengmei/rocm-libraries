@@ -199,21 +199,30 @@ bool __host__ __device__ operator==(T const& lhs, large_data const& rhs)
   return static_cast<large_data>(lhs).data[0] == rhs.data[0];
 }
 
-inline std::vector<size_t> sizes(size_t bytes_per_item)
+inline size_t total_global_mem()
 {
-  static const hipDeviceProp_t dev_prop = [] {
+  static const size_t mem = [] {
     int device_id = 0;
     HIP_CHECK(hipGetDevice(&device_id));
     hipDeviceProp_t prop{};
     HIP_CHECK(hipGetDeviceProperties(&prop, device_id));
-    return prop;
+    return prop.totalGlobalMem;
   }();
+  return mem;
+}
 
+inline bool does_size_fit(size_t bytes_per_element, size_t size)
+{
+  return bytes_per_element * size <= total_global_mem();
+}
+
+inline std::vector<size_t> sizes(size_t bytes_per_element)
+{
   constexpr size_t all_sizes[] = {1u << 16, 1u << 20, 1u << 24, 1u << 28};
 
   std::vector<size_t> result;
   for (size_t size : all_sizes)
-    if (bytes_per_item * size <= dev_prop.totalGlobalMem)
+    if (does_size_fit(bytes_per_element, size))
       result.push_back(size);
   return result;
 }
