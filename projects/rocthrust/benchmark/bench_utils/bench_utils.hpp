@@ -20,10 +20,10 @@
 // OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 // SOFTWARE.
 
-#ifndef ROCTHRUST_BENCHMARKS_BENCH_UTILS_BENCH_UTILS_HPP_
-#define ROCTHRUST_BENCHMARKS_BENCH_UTILS_BENCH_UTILS_HPP_
+#pragma once
 
-// Utils
+#include "primbench.hpp"
+
 #include <thrust/execution_policy.h>
 
 #include "common/types.hpp" // IWYU pragma: export
@@ -31,14 +31,12 @@
 #include "generation_utils.hpp" // IWYU pragma: export
 #include "thrust_compat.hpp" // IWYU pragma: export
 
-// HIP/CUDA
 #if THRUST_DEVICE_SYSTEM == THRUST_DEVICE_SYSTEM_HIP
 #  include <hip/hip_runtime.h>
 #elif THRUST_DEVICE_SYSTEM == THRUST_DEVICE_SYSTEM_CUDA
 #  include <cuda_runtime.h>
 #endif
 
-// STL
 #include <algorithm>
 #include <array>
 #include <chrono>
@@ -65,7 +63,6 @@ namespace bench_utils
       }                                                                            \
     }
 
-// Binary operators
 struct less_t
 {
   template <typename T>
@@ -174,4 +171,3 @@ inline constexpr size_t sizes[] = {1u << 16, 1u << 20, 1u << 24, 1u << 28};
 
 } // namespace bench_utils
 
-#endif // ROCTHRUST_BENCHMARKS_BENCH_UTILS_BENCH_UTILS_HPP_
