@@ -28,7 +28,16 @@
 
 #include "types.hpp" // IWYU pragma: export
 #include "generation_utils.hpp" // IWYU pragma: export
-#include "thrust_compat.hpp" // IWYU pragma: export
+
+/// This allows running rocThrust benchmarks with CCCL Thrust.
+#ifndef _THRUST_HAS_DEVICE_SYSTEM_STD
+  #define THRUST_HOST_DEVICE __host__ __device__
+  #define THRUST_DEVICE __device__
+
+  #define _THRUST_LIBCXX_INCLUDE(LIB) <cuda/LIB>
+  #define _THRUST_STD ::cuda::std
+  #define _THRUST_LIBCXX ::cuda
+#endif // _THRUST_HAS_DEVICE_SYSTEM_STD
 
 #if THRUST_DEVICE_SYSTEM == THRUST_DEVICE_SYSTEM_HIP
 #  include <hip/hip_runtime.h>
