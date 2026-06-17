@@ -171,3 +171,12 @@ inline constexpr size_t sizes[] = {1u << 16, 1u << 20, 1u << 24, 1u << 28};
 
 } // namespace bench_utils
 
+PRIMBENCH_REGISTER_TYPE(int8_t, "i8")
+PRIMBENCH_REGISTER_TYPE(int16_t, "i16")
+PRIMBENCH_REGISTER_TYPE(int32_t, "i32")
+PRIMBENCH_REGISTER_TYPE(int64_t, "i64")
+#if THRUST_BENCHMARKS_HAVE_INT128_SUPPORT
+PRIMBENCH_REGISTER_TYPE(int128_t, "i128")
+#endif
+PRIMBENCH_REGISTER_TYPE(float, "f32")
+PRIMBENCH_REGISTER_TYPE(double, "f64")
