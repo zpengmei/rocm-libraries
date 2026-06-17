@@ -4,6 +4,25 @@
 
 message(STATUS "Configuring benchmarks")
 
+# Get the current branch, or fall back to DETACHED
+execute_process(
+  COMMAND ${GIT_EXECUTABLE} symbolic-ref -q --short HEAD
+  WORKING_DIRECTORY ${CMAKE_CURRENT_LIST_DIR}
+  OUTPUT_VARIABLE BRANCH_NAME
+  OUTPUT_STRIP_TRAILING_WHITESPACE
+)
+if(BRANCH_NAME STREQUAL "")
+  set(BRANCH_NAME "DETACHED")
+endif()
+
+# Get the short commit hash
+execute_process(
+  COMMAND ${GIT_EXECUTABLE} rev-parse --short HEAD
+  WORKING_DIRECTORY ${CMAKE_CURRENT_LIST_DIR}
+  OUTPUT_VARIABLE COMMIT_HASH
+  OUTPUT_STRIP_TRAILING_WHITESPACE
+)
+
 function(add_thrust_benchmark BENCHMARK_SOURCE)
     file(RELATIVE_PATH rel_path ${CMAKE_CURRENT_LIST_DIR}/bench ${CMAKE_CURRENT_LIST_DIR}/${BENCHMARK_SOURCE})
     string(REPLACE ".cu" "" bench_name ${rel_path})
@@ -37,6 +56,21 @@ function(add_thrust_benchmark BENCHMARK_SOURCE)
     endif()
 
     target_link_libraries(${BENCHMARK_TARGET} PRIVATE roc::rocrand)
+
+    target_include_directories(${BENCHMARK_TARGET} PRIVATE
+      "${PROJECT_SOURCE_DIR}/benchmark"
+      "${PROJECT_SOURCE_DIR}/../../shared/primbench")
+
+    target_compile_definitions(${BENCHMARK_TARGET} PUBLIC BRANCH_NAME="${BRANCH_NAME}")
+    target_compile_definitions(${BENCHMARK_TARGET} PUBLIC COMMIT_HASH="${COMMIT_HASH}")
+
+    if(WIN32)
+        target_compile_definitions(${BENCHMARK_TARGET} PRIVATE PRIMBENCH_NO_MONITORING)
+    elseif(HIP_COMPILER STREQUAL "nvcc")
+        target_link_libraries(${BENCHMARK_TARGET} PRIVATE nvidia-ml)
+    else()
+        target_link_libraries(${BENCHMARK_TARGET} PRIVATE amd_smi)
+    endif()
 
     foreach(gpu_target ${GPU_TARGETS})
         target_link_libraries(${BENCHMARK_TARGET}
