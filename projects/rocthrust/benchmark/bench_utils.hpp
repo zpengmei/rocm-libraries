@@ -199,19 +199,24 @@ bool __host__ __device__ operator==(T const& lhs, large_data const& rhs)
   return static_cast<large_data>(lhs).data[0] == rhs.data[0];
 }
 
-struct sys_info
+inline std::vector<size_t> sizes(size_t bytes_per_item)
 {
-  hipDeviceProp_t devProp;
-  sys_info()
-  {
+  static const hipDeviceProp_t dev_prop = [] {
     int device_id = 0;
     HIP_CHECK(hipGetDevice(&device_id));
-    HIP_CHECK(hipGetDeviceProperties(&devProp, device_id));
-  }
-};
+    hipDeviceProp_t prop{};
+    HIP_CHECK(hipGetDeviceProperties(&prop, device_id));
+    return prop;
+  }();
 
-inline sys_info system;
-inline constexpr size_t sizes[] = {1u << 16, 1u << 20, 1u << 24, 1u << 28};
+  constexpr size_t all_sizes[] = {1u << 16, 1u << 20, 1u << 24, 1u << 28};
+
+  std::vector<size_t> result;
+  for (size_t size : all_sizes)
+    if (bytes_per_item * size <= dev_prop.totalGlobalMem)
+      result.push_back(size);
+  return result;
+}
 
 } // namespace bench_utils
 
