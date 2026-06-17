@@ -20,8 +20,7 @@
 // OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 // SOFTWARE.
 
-#ifndef ROCTHRUST_BENCHMARKS_BENCH_UTILS_TYPES_HPP_
-#define ROCTHRUST_BENCHMARKS_BENCH_UTILS_TYPES_HPP_
+#pragma once
 
 #include <cstdint>
 
@@ -78,5 +77,3 @@ bool __host__ __device__ operator==(T const& lhs, large_data const& rhs)
 }
 
 }; // namespace bench_utils
-
-#endif // ROCTHRUST_BENCHMARKS_BENCH_UTILS_TYPES_HPP_

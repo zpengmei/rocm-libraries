@@ -22,8 +22,7 @@
 
 // This header allows running rocThrust benchmarks with CCCL Thrust.
 
-#ifndef ROCTHRUST_BENCHMARKS_BENCH_UTILS_THRUST_COMPAT_HPP_
-#define ROCTHRUST_BENCHMARKS_BENCH_UTILS_THRUST_COMPAT_HPP_
+#pragma once
 
 #ifndef _THRUST_HAS_DEVICE_SYSTEM_STD
 
@@ -35,4 +34,3 @@
 #define _THRUST_LIBCXX ::cuda
 
 #endif // _THRUST_HAS_DEVICE_SYSTEM_STD
-#endif // ROCTHRUST_BENCHMARKS_BENCH_UTILS_THRUST_COMPAT_HPP_
