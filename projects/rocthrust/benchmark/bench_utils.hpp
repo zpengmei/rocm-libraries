@@ -156,17 +156,6 @@ private:
   }
 };
 
-inline std::string format_pow2(size_t n)
-{
-  unsigned int k = 0;
-  while (!(n & 1))
-  {
-    k++;
-    n >>= 1;
-  }
-  return "1 << " + std::to_string(k);
-}
-
 class large_data
 {
 public:
