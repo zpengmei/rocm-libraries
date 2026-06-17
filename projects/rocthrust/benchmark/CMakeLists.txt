@@ -4,6 +4,9 @@
 
 message(STATUS "Configuring benchmarks")
 
+# Force CMake to find Git immediately so ${GIT_EXECUTABLE} is populated
+find_package(Git REQUIRED)
+
 # Get the current branch, or fall back to DETACHED
 execute_process(
   COMMAND ${GIT_EXECUTABLE} symbolic-ref -q --short HEAD
