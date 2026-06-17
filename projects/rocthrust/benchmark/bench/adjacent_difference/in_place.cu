@@ -33,9 +33,9 @@
 #include <thrust/execution_policy.h>
 
 template <typename T>
-struct for_each_benchmark : public primbench::benchmark_interface
+struct adjacent_difference_benchmark : public primbench::benchmark_interface
 {
-  for_each_benchmark(size_t items) : m_items(items) {}
+  adjacent_difference_benchmark(size_t items) : m_items(items) {}
 
     primbench::json meta() const override
   {
@@ -68,7 +68,7 @@ struct for_each_benchmark : public primbench::benchmark_interface
 
 #define QUEUE(T)                                    \
   for (size_t size : bench_utils::sizes(sizeof(T))) \
-    executor.queue<for_each_benchmark<T>>(size);
+    executor.queue<adjacent_difference_benchmark<T>>(size);
 
 int main(int argc, char* argv[])
 {
