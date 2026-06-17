@@ -106,12 +106,9 @@ void run_benchmark(benchmark::State& state, const std::size_t elements, const st
     Elements,                                                                                               \
     seed_type)
 
-#define BENCHMARK_TYPE(type)                                               \
-  for (size_t size : bench_utils::sizes)                                   \
-  {                                                                        \
-    if (sizeof(type) * size <= bench_utils::system.devProp.totalGlobalMem) \
-      bs.push_back(CREATE_BENCHMARK(type, size));                          \
-  }
+#define BENCHMARK_TYPE(type)                           \
+  for (size_t size : bench_utils::sizes(sizeof(type))) \
+    bs.push_back(CREATE_BENCHMARK(type, size));
 
 // Non-trivially-copyable/relocatable type which is not allowed to be copied using std::memcpy or cudaMemcpy
 struct non_trivial

@@ -132,12 +132,9 @@ void run_benchmark(
     seed_type,                                                                        \
     RngEngine)
 
-#define BENCHMARK_RNG_ENGINE(type, rng_engine)                             \
-  for (size_t size : bench_utils::sizes)                                   \
-  {                                                                        \
-    if (sizeof(type) * size <= bench_utils::system.devProp.totalGlobalMem) \
-      bs.push_back(CREATE_BENCHMARK(type, rng_engine, size));              \
-  }
+#define BENCHMARK_RNG_ENGINE(type, rng_engine)             \
+  for (size_t size : bench_utils::sizes(sizeof(type)))     \
+    bs.push_back(CREATE_BENCHMARK(type, rng_engine, size));
 
 #define BENCHMARK_TYPE(type)             \
   BENCHMARK_RNG_ENGINE(type, "minstd")   \

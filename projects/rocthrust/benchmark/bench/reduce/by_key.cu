@@ -140,12 +140,9 @@ void run_benchmark(
   bs.push_back(CREATE_BENCHMARK(key_type, value_type, elements, 4)); \
   bs.push_back(CREATE_BENCHMARK(key_type, value_type, elements, 8));
 
-#define BENCHMARK_VALUE_TYPE(key_type, value_type)                                                           \
-  for (size_t size : bench_utils::sizes)                                                                     \
-  {                                                                                                          \
-    if ((sizeof(key_type) * size + sizeof(value_type) * size) <= bench_utils::system.devProp.totalGlobalMem) \
-      BENCHMARK_ELEMENTS(key_type, value_type, size)                                                         \
-  }
+#define BENCHMARK_VALUE_TYPE(key_type, value_type)                              \
+  for (size_t size : bench_utils::sizes(sizeof(key_type) + sizeof(value_type))) \
+    BENCHMARK_ELEMENTS(key_type, value_type, size)
 
 #ifndef _MSC_VER
 #  define BENCHMARK_KEY_TYPE(key_type)       \

@@ -113,12 +113,9 @@ void run_benchmark(
   bs.push_back(CREATE_BENCHMARK(type, elements, 4)); \
   bs.push_back(CREATE_BENCHMARK(type, elements, 8));
 
-#define BENCHMARK_TYPE(type)                                               \
-  for (size_t size : bench_utils::sizes)                                   \
-  {                                                                        \
-    if (sizeof(type) * size <= bench_utils::system.devProp.totalGlobalMem) \
-      BENCHMARK_ELEMENTS(type, size);                                      \
-  }
+#define BENCHMARK_TYPE(type)                           \
+  for (size_t size : bench_utils::sizes(sizeof(type))) \
+    BENCHMARK_ELEMENTS(type, size);
 
 template <class Benchmark>
 void add_benchmarks(

@@ -155,12 +155,9 @@ void run_benchmark(benchmark::State& state,
   bs.push_back(CREATE_BENCHMARK(key_type, value_type, elements, entropy, 50)); \
   bs.push_back(CREATE_BENCHMARK(key_type, value_type, elements, entropy, 75));
 
-#define BENCHMARK_VALUE_TYPE(key_type, value_type, entropy)                                                  \
-  for (size_t size : bench_utils::sizes)                                                                     \
-  {                                                                                                          \
-    if ((sizeof(key_type) * size + sizeof(value_type) * size) <= bench_utils::system.devProp.totalGlobalMem) \
-      BENCHMARK_ELEMENTS(key_type, value_type, size, entropy)                                                \
-  }
+#define BENCHMARK_VALUE_TYPE(key_type, value_type, entropy)                     \
+  for (size_t size : bench_utils::sizes(sizeof(key_type) + sizeof(value_type))) \
+    BENCHMARK_ELEMENTS(key_type, value_type, size, entropy)
 
 #define BENCHMARK_KEY_TYPE_ENTROPY(key_type, entropy) \
   BENCHMARK_VALUE_TYPE(key_type, int8_t, entropy)     \

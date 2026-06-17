@@ -150,12 +150,9 @@ void run_benchmark(benchmark::State& state, const std::size_t elements, const st
     Elements,                                                                                                    \
     seed_type)
 
-#define BENCHMARK_TYPE(type)                                               \
-  for (size_t size : bench_utils::sizes)                                   \
-  {                                                                        \
-    if (sizeof(type) * size <= bench_utils::system.devProp.totalGlobalMem) \
-      bs.push_back(CREATE_BENCHMARK(type, size));                          \
-  }
+#define BENCHMARK_TYPE(type)                           \
+  for (size_t size : bench_utils::sizes(sizeof(type))) \
+    bs.push_back(CREATE_BENCHMARK(type, size));
 
 template <class Benchmark>
 void add_benchmarks(
@@ -328,7 +325,7 @@ void run_babelstream(benchmark::State& state, const std::size_t n)
 // Different benchmarks use a different number of buffers. H200/B200 can fit 2^31 elements for all benchmarks and types.
 // Upstream BabelStream uses 2^25. Allocation failure just skips the benchmark
 #define BENCHMARK_BABELSTREAM_TYPE(type)                                          \
-  if (sizeof(type) * (1u << 25) <= bench_utils::system.devProp.totalGlobalMem)    \
+  if (bench_utils::does_size_fit(sizeof(type), 1u << 25))                         \
   {                                                                               \
     bs.push_back(CREATE_BABELSTREAM_BENCHMARK(type, (1u << 25), mul));            \
     bs.push_back(CREATE_BABELSTREAM_BENCHMARK(type, (1u << 25), add));            \
@@ -336,7 +333,7 @@ void run_babelstream(benchmark::State& state, const std::size_t n)
     bs.push_back(CREATE_BABELSTREAM_BENCHMARK(type, (1u << 25), nstream));        \
     bs.push_back(CREATE_BABELSTREAM_BENCHMARK(type, (1u << 25), nstream_stable)); \
   }                                                                               \
-  if (sizeof(type) * (1u << 31) <= bench_utils::system.devProp.totalGlobalMem)    \
+  if (bench_utils::does_size_fit(sizeof(type), 1u << 31))                         \
   {                                                                               \
     bs.push_back(CREATE_BABELSTREAM_BENCHMARK(type, (1u << 31), mul));            \
     bs.push_back(CREATE_BABELSTREAM_BENCHMARK(type, (1u << 31), add));            \

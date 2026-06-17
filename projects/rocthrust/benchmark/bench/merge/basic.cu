@@ -125,12 +125,10 @@ void run_benchmark(benchmark::State& state,
   bs.push_back(CREATE_BENCHMARK(type, elements, entropy, 50)); \
   bs.push_back(CREATE_BENCHMARK(type, elements, entropy, 75));
 
-#define BENCHMARK_TYPE_ENTROPY(type, entropy)                              \
-  for (size_t size : bench_utils::sizes)                                   \
-  {                                                                        \
-    if (sizeof(type) * size <= bench_utils::system.devProp.totalGlobalMem) \
-      BENCHMARK_ELEMENTS(type, size, entropy);                             \
-  }
+#define BENCHMARK_TYPE_ENTROPY(type, entropy)          \
+  for (size_t size : bench_utils::sizes(sizeof(type))) \
+    BENCHMARK_ELEMENTS(type, size, entropy);
+
 template <class Benchmark>
 void add_benchmarks(
   const std::string& name, std::vector<benchmark::internal::Benchmark*>& benchmarks, const std::string seed_type)

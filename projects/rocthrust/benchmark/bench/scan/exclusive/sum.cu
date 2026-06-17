@@ -102,12 +102,9 @@ void run_benchmark(benchmark::State& state, const std::size_t elements, const st
     Elements,                                                                                                         \
     seed_type)
 
-#define BENCHMARK_TYPE(type)                                               \
-  for (size_t size : bench_utils::sizes)                                   \
-  {                                                                        \
-    if (sizeof(type) * size <= bench_utils::system.devProp.totalGlobalMem) \
-      bs.push_back(CREATE_BENCHMARK(type, size));                          \
-  }
+#define QUEUE(T)                                    \
+  for (size_t size : bench_utils::sizes(sizeof(T))) \
+      bs.push_back(CREATE_BENCHMARK(type, size));
 
 template <class Benchmark>
 void add_benchmarks(

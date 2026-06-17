@@ -137,12 +137,9 @@ void run_benchmark(
     seed_type,                                                                                                  \
     EntropyReduction)
 
-#define BENCHMARK_TYPE_ENTROPY(type, entropy)                              \
-  for (size_t size : bench_utils::sizes)                                   \
-  {                                                                        \
-    if (sizeof(type) * size <= bench_utils::system.devProp.totalGlobalMem) \
-      bs.push_back(CREATE_BENCHMARK(type, size, entropy));                 \
-  }
+#define BENCHMARK_TYPE_ENTROPY(type, entropy)          \
+  for (size_t size : bench_utils::sizes(sizeof(type))) \
+    BENCHMARK_ELEMENTS(type, size, entropy);
 
 template <class Benchmark>
 void add_benchmarks(
