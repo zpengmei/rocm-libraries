@@ -22,7 +22,7 @@ struct equal_benchmark : public primbench::benchmark_interface
   {
     return primbench::json{}
       .add("algo", "equal")
-      .add("subalog", "basic")
+      .add("subalgo", "basic")
       .add("input_type", primbench::name<T>())
       .add("elements", m_items)
       .add("common_prefix_ratio", common_prefix_ratio);

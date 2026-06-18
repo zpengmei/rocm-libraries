@@ -57,7 +57,7 @@ struct partition_benchmark : public primbench::benchmark_interface
   {
     return primbench::json{}
       .add("algo", "partition")
-      .add("subalog", "basic")
+      .add("subalgo", "basic")
       .add("input_type", primbench::name<T>())
       .add("elements", m_items)
       .add("entropy", bench_utils::get_entropy_percentage(entropy_reduction));

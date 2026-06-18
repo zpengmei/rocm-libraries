@@ -47,7 +47,7 @@ struct fill_benchmark : public primbench::benchmark_interface
   {
     return primbench::json{}
       .add("algo", "fill")
-      .add("subalog", "basic")
+      .add("subalgo", "basic")
       .add("input_type", primbench::name<T>())
       .add("elements", m_items);
   }

@@ -574,17 +574,17 @@ void gen_key_segments(thrust::device_vector<T>& keys, thrust::device_vector<size
 struct device_uniform_key_segments_generator_t
 {
   const std::size_t elements{0};
-  const std::string seed_type{"random"};
+  const managed_seed seed_source{};
   const std::size_t min_segment_size{0};
   const std::size_t max_segment_size{0};
 
   device_uniform_key_segments_generator_t(
     std::size_t m_elements,
-    const std::string m_seed_type,
+    const managed_seed& m_seed_source,
     const std::size_t m_min_segment_size,
     const std::size_t m_max_segment_size)
       : elements(m_elements)
-      , seed_type(m_seed_type)
+      , seed_source(m_seed_source)
       , min_segment_size(m_min_segment_size)
       , max_segment_size(m_max_segment_size)
   {}
@@ -596,7 +596,7 @@ struct device_uniform_key_segments_generator_t
 
     thrust::device_vector<std::size_t> segment_offsets(keys.size() + 2);
     const std::size_t offsets_size =
-      gen_uniform_offsets(seed_type, segment_offsets, min_segment_size, max_segment_size);
+      gen_uniform_offsets(seed_source, segment_offsets, min_segment_size, max_segment_size);
     segment_offsets.resize(offsets_size);
 
     gen_key_segments(keys, segment_offsets);
@@ -609,11 +609,11 @@ struct gen_uniform_key_segments_t
 {
   device_uniform_key_segments_generator_t operator()(
     const std::size_t elements,
-    const std::string seed_type,
+    const managed_seed& seed_source,
     const std::size_t min_segment_size,
     const std::size_t max_segment_size) const
   {
-    return {elements, seed_type, min_segment_size, max_segment_size};
+    return {elements, seed_source, min_segment_size, max_segment_size};
   }
 };
 

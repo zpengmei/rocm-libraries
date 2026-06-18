@@ -48,7 +48,7 @@ struct merge_benchmark : public primbench::benchmark_interface
   {
     return primbench::json{}
       .add("algo", "merge")
-      .add("subalog", "basic")
+      .add("subalgo", "basic")
       .add("input_type", primbench::name<T>())
       .add("elements", m_items)
       .add("entropy", bench_utils::get_entropy_percentage(entropy_reduction))
