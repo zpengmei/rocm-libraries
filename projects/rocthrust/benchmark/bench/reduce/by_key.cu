@@ -66,33 +66,13 @@ struct reduce_benchmark : public primbench::benchmark_interface
     thrust::device_vector<K> out_keys;
     thrust::device_vector<T> in_vals;
 
-    try
-    {
-      in_keys  = bench_utils::generate.uniform.key_segments(m_items, state.seed, min_segment_size, max_segment_size);
-      out_keys = in_keys;
-      in_vals  = thrust::device_vector<T>(m_items);
-    }
-    catch (const ::thrust::system::detail::bad_alloc& e)
-    {
-      (void) hipGetLastError();
-
-      std::cerr << "Skipping " << meta().serialize_name() << ": " << e.what() << "\n";
-      return;
-    }
+    in_keys  = bench_utils::generate.uniform.key_segments(m_items, state.seed, min_segment_size, max_segment_size);
+    out_keys = in_keys;
+    in_vals  = thrust::device_vector<T>(m_items);
 
     const size_t unique_keys = thrust::distance(out_keys.begin(), thrust::unique(out_keys.begin(), out_keys.end()));
     thrust::device_vector<T> out_vals;
-    try
-    {
-      out_vals = thrust::device_vector<T>(unique_keys);
-    }
-    catch (const ::thrust::system::detail::bad_alloc& e)
-    {
-      (void) hipGetLastError();
-      std::cerr << "Skipping " << meta().serialize_name() << ": " << e.what() << "\n";
-      return;
-      return;
-    }
+    out_vals = thrust::device_vector<T>(unique_keys);
 
     state.set_items(m_items);
     state.add_reads<T>(m_items);
