@@ -90,7 +90,7 @@ function(add_thrust_benchmark BENCHMARK_SOURCE)
 endfunction()
 
 # TODO: GRADUALLY ADD ALL OF THESE OTHER BENCHMARKS BACK
-# 11/40 Finished...
+# 12/40 Finished...
 add_thrust_benchmark(bench/adjacent_difference/basic.cu)
 add_thrust_benchmark(bench/adjacent_difference/custom.cu)
 add_thrust_benchmark(bench/adjacent_difference/in_place.cu)
@@ -102,7 +102,7 @@ add_thrust_benchmark(bench/for_each/basic.cu)
 add_thrust_benchmark(bench/inner_product/basic.cu)
 add_thrust_benchmark(bench/merge/basic.cu)
 add_thrust_benchmark(bench/partition/basic.cu)
-# add_thrust_benchmark(bench/reduce/basic.cu)
+add_thrust_benchmark(bench/reduce/basic.cu)
 # add_thrust_benchmark(bench/reduce/by_key.cu)
 # add_thrust_benchmark(bench/scan/exclusive/by_key.cu)
 # add_thrust_benchmark(bench/scan/exclusive/max.cu)
