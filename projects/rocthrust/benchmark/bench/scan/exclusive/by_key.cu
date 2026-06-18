@@ -65,6 +65,7 @@ struct exclusive_scan_benchmark : public primbench::benchmark_interface
 
     state.set_items(m_items);
     state.add_reads<T>(m_items);
+    state.add_reads<K>(m_items);
     state.add_writes<T>(m_items);
 
     state.run([&] {
@@ -76,8 +77,8 @@ private:
   size_t m_items;
 };
 
-#define QUEUE(K, T)                                             \
-  for (size_t size : bench_utils::sizes(sizeof(T) + sizeof(K))) \
+#define QUEUE(K, T)                                                 \
+  for (size_t size : bench_utils::sizes(2 * sizeof(T) + sizeof(K))) \
     executor.queue<exclusive_scan_benchmark<T, K>>(size);
 
 #ifndef _MSC_VER

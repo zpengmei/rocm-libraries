@@ -55,8 +55,7 @@ struct reduce_benchmark : public primbench::benchmark_interface
     bench_utils::caching_allocator_t alloc{};
     thrust::detail::device_t policy{};
 
-  thrust::device_vector<T> in = bench_utils::generate(m_items, state.seed);
-
+    thrust::device_vector<T> in = bench_utils::generate(m_items, state.seed);
 
     state.set_items(m_items);
     state.add_reads<T>(m_items);

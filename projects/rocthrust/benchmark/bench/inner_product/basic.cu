@@ -55,9 +55,8 @@ struct inner_product_benchmark : public primbench::benchmark_interface
     bench_utils::caching_allocator_t alloc{};
     thrust::detail::device_t policy{};
 
-    thrust::device_vector<T> generator = bench_utils::generate(m_items, state.seed);
-    thrust::device_vector<T> lhs       = generator;
-    thrust::device_vector<T> rhs       = generator;
+    thrust::device_vector<T> lhs = bench_utils::generate(m_items, state.seed);
+    thrust::device_vector<T> rhs = lhs;
 
     state.set_items(m_items);
     state.add_reads<T>(m_items);
@@ -72,8 +71,8 @@ private:
   size_t m_items;
 };
 
-#define QUEUE(T)                                    \
-  for (size_t size : bench_utils::sizes(sizeof(T))) \
+#define QUEUE(T)                                        \
+  for (size_t size : bench_utils::sizes(2 * sizeof(T))) \
     executor.queue<inner_product_benchmark<T>>(size);
 
 int main(int argc, char* argv[])

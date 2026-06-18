@@ -92,7 +92,7 @@ private:
 };
 
 #define QUEUE(T)                                    \
-  for (size_t size : bench_utils::sizes(sizeof(T))) \
+  for (size_t size : bench_utils::sizes(2 * sizeof(T))) \
   {                                                 \
     executor.queue<copy_benchmark<T>>(size, 0);     \
     executor.queue<copy_benchmark<T>>(size, 2);     \

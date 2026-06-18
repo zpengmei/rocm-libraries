@@ -95,8 +95,8 @@ private:
   int entropy_reduction;
 };
 
-#define QUEUE(T, E)                                 \
-  for (size_t size : bench_utils::sizes(sizeof(T))) \
+#define QUEUE(T, E)                                     \
+  for (size_t size : bench_utils::sizes(2 * sizeof(T))) \
     executor.queue<partition_benchmark<T>>(size, E);
 
 int main(int argc, char* argv[])

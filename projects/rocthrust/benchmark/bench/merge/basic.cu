@@ -61,7 +61,7 @@ struct merge_benchmark : public primbench::benchmark_interface
     thrust::detail::device_t policy{};
 
     const auto entropy      = bench_utils::get_entropy_percentage(entropy_reduction) / 100.0f;
-    const auto items_in_lhs = static_cast<std::size_t>(static_cast<double>(input_size_ratio * m_items) / 100.0);
+    const auto items_in_lhs = static_cast<size_t>(static_cast<double>(input_size_ratio * m_items) / 100.0);
 
     thrust::device_vector<T> in = bench_utils::generate(m_items, state.seed, entropy);
     thrust::sort(in.begin(), in.begin() + items_in_lhs);
@@ -85,8 +85,8 @@ private:
   size_t input_size_ratio;
 };
 
-#define QUEUE(T, E, I)                              \
-  for (size_t size : bench_utils::sizes(sizeof(T))) \
+#define QUEUE(T, E, I)                                  \
+  for (size_t size : bench_utils::sizes(2 * sizeof(T))) \
     executor.queue<merge_benchmark<T>>(size, E, I);
 
 int main(int argc, char* argv[])

@@ -76,7 +76,9 @@ struct reduce_benchmark : public primbench::benchmark_interface
 
     state.set_items(m_items);
     state.add_reads<T>(m_items);
+    state.add_reads<K>(m_items);
     state.add_writes<T>(m_items);
+    state.add_writes<K>(m_items);
 
     state.run([&] {
       thrust::reduce_by_key(
@@ -89,13 +91,13 @@ private:
   size_t max_segment_size;
 };
 
-#define QUEUE(K, T)                                               \
-  for (size_t max_seg : max_segment_sizes)                        \
-  {                                                               \
-    for (size_t size : bench_utils::sizes(sizeof(T) + sizeof(K))) \
-    {                                                             \
-      executor.queue<reduce_benchmark<T, K>>(size, max_seg);      \
-    }                                                             \
+#define QUEUE(K, T)                                                     \
+  for (size_t max_seg : max_segment_sizes)                              \
+  {                                                                     \
+    for (size_t size : bench_utils::sizes(2 * (sizeof(T) + sizeof(K)))) \
+    {                                                                   \
+      executor.queue<reduce_benchmark<T, K>>(size, max_seg);            \
+    }                                                                   \
   }
 
 #ifndef _MSC_VER

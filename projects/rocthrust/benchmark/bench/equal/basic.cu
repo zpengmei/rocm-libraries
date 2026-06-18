@@ -54,12 +54,12 @@ private:
   double common_prefix_ratio;
 };
 
-#define QUEUE(T)                                    \
-  for (size_t size : bench_utils::sizes(sizeof(T))) \
-  {                                                 \
-    executor.queue<equal_benchmark<T>>(size, 1.0);  \
-    executor.queue<equal_benchmark<T>>(size, 0.5);  \
-    executor.queue<equal_benchmark<T>>(size, 0.0);  \
+#define QUEUE(T)                                        \
+  for (size_t size : bench_utils::sizes(2 * sizeof(T))) \
+  {                                                     \
+    executor.queue<equal_benchmark<T>>(size, 1.0);      \
+    executor.queue<equal_benchmark<T>>(size, 0.5);      \
+    executor.queue<equal_benchmark<T>>(size, 0.0);      \
   }
 
 int main(int argc, char* argv[])

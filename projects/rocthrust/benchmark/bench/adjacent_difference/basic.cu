@@ -70,7 +70,7 @@ struct adjacent_difference_benchmark : public primbench::benchmark_interface
 };
 
 #define QUEUE(T)                                    \
-  for (size_t size : bench_utils::sizes(sizeof(T))) \
+  for (size_t size : bench_utils::sizes(2 * sizeof(T))) \
     executor.queue<adjacent_difference_benchmark<T>>(size);
 
 int main(int argc, char* argv[])
