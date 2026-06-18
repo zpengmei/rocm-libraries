@@ -104,7 +104,7 @@ int main(int argc, char* argv[])
   primbench::settings settings;
   settings.size                 = 1; // bench_utils::sizes() calculates it later.
   settings.min_gpu_ms_per_batch = 100;
-  primbench::executor executor(argc, argv, settings, primbench::flags::sync);
+  primbench::executor executor(argc, argv, settings);
 
   QUEUE(int8_t)
   QUEUE(int16_t)
