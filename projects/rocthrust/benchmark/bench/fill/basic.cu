@@ -70,12 +70,11 @@ struct fill_benchmark : public primbench::benchmark_interface
 
 private:
   size_t m_items;
-  double common_prefix_ratio;
 };
 
 #define QUEUE(T)                                    \
   for (size_t size : bench_utils::sizes(sizeof(T))) \
-    executor.queue<fill_benchmark<T>>(size);  
+    executor.queue<fill_benchmark<T>>(size);
 
 int main(int argc, char* argv[])
 {
