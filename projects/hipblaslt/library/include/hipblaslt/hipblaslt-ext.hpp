@@ -88,11 +88,11 @@ namespace hipblaslt_ext
          *  ``hipblasLt`` C API. The ``mode`` argument is one of
          *  ``hipblasLtStreamKTileSchedulingMode_t``:
          *
-         *    - ``HIPBLASLT_STREAMK_TILE_SCHEDULING_OFF`` (default) — SK3 static
+         *    - ``HIPBLASLT_STREAMK_TILE_SCHEDULING_OFF`` — SK3 static
          *      sub-path; when ``sm_count_target`` > 0 the library heuristic
          *      still runs per launch to pick SK4 when appropriate.
          *    - ``HIPBLASLT_STREAMK_TILE_SCHEDULING_ON``  — always request the SK4 dynamic sub-path when the chosen kernel supports it.
-         *    - ``HIPBLASLT_STREAMK_TILE_SCHEDULING_AUTO`` — always delegate to the library heuristic per launch.
+         *    - ``HIPBLASLT_STREAMK_TILE_SCHEDULING_AUTO`` (default) — always delegate to the library heuristic per launch.
          *
          *  The mode is tri-state: a caller can use the SK3 static
          *  sub-path by default (``OFF``), force the SK4 dynamic sub-path (``ON``),

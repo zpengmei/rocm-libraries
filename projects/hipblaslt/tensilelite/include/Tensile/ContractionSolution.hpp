@@ -206,9 +206,9 @@ namespace TensileLite
     {
         origami::reduction_t reduction = origami::reduction_t::tree;
         size_t               grid      = 0;
-        // StreamK=5 tri-state (0=OFF default/SK3, 1=ON/SK4, 2=AUTO); see
+        // StreamK=5 tri-state (0=OFF/SK3, 1=ON/SK4, 2=AUTO default); see
         // hipblasLtStreamKTileSchedulingMode_t. Ignored when streamK != 5.
-        int                  streamKTileSchedulingMode = 0;
+        int                  streamKTileSchedulingMode = 2;
         int                  smCountTarget = 0; // 0 = use all device CUs; >0 engages origami heuristic when mode is OFF
     };
 
@@ -377,7 +377,7 @@ namespace TensileLite
         // Precedence (highest first): the TENSILE_STREAMK5_FORCE_MODE debug env
         // override (0=force static, 1=force dynamic), then the problem tri-state
         // streamKTileSchedulingMode (0=OFF/static unless smCountTarget()>0,
-        // 1=ON/dynamic), then AUTO (2) via the origami hybrid-mode heuristic.
+        // 1=ON/dynamic, 2=AUTO default via origami hybrid-mode heuristic).
         // Only meaningful when
         // sizeMapping.streamK == 5. This is the single source of truth shared by
         // grid sizing (getSKGrid) and kernel-arg packing (generateSingleCall) so

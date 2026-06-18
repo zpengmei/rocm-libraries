@@ -16,7 +16,7 @@ GlobalParameters:
   EnqueuesPerSync: 1
   SleepPercent: 50
   # Exercise the two deterministic SK5 hybrid-mode paths in one run:
-  #   0 -> static work assignment (OFF, default)
+  #   0 -> static work assignment (OFF)
   #   1 -> dynamic per-XCD work-queue path (ON)
   # Each base problem is replayed once per value, so reference vs kernel
   # validation runs for both paths and confirms numerical equivalence.

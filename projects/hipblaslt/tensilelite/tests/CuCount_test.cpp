@@ -454,8 +454,8 @@ namespace
 TEST(StreamK5HybridModeTest, ProblemParamsDefaultToOff)
 {
     auto problem = dummyProblem();
-    EXPECT_EQ(problem.getParams().streamKTileSchedulingMode(), 0)
-        << "StreamK=5 hybrid mode should default to OFF (0)";
+    EXPECT_EQ(problem.getParams().streamKTileSchedulingMode(), 2)
+        << "StreamK=5 hybrid mode should default to AUTO (2)";
     EXPECT_EQ(problem.getParams().smCountTarget(), 0)
         << "smCountTarget should default to 0 (use all device CUs)";
 }

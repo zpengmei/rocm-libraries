@@ -30,12 +30,10 @@ Full documentation for hipBLASLt is available at [rocm.docs.amd.com/projects/hip
 
 ### Changed
 
-* StreamK=5 tile scheduling default is now `OFF` (`0`, static SK3 sub-path)
-  instead of `AUTO` (`2`). Set `HIPBLASLT_MATMUL_DESC_SM_COUNT_TARGET` (or
-  `hipblasLtSetSmCountTarget`) to a positive value to engage the origami
-  hybrid-mode heuristic per launch even when the mode is `OFF`; use
-  `HIPBLASLT_STREAMK_TILE_SCHEDULING_AUTO` (`2`) to always delegate to the
-  heuristic regardless of `sm_count_target`.
+* StreamK=5 tile scheduling default is now `AUTO` (`2`, origami heuristic
+  picks between static/dynamic per launch). Set
+  `HIPBLASLT_MATMUL_DESC_STREAMK_TILE_SCHEDULING_EXT` to `OFF` (`0`) to force
+  the SK3 static sub-path, or `ON` (`1`) to force the SK4 dynamic sub-path.
 
 ## hipBLASLt 1.3.0
 
