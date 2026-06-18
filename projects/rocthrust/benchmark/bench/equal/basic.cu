@@ -10,12 +10,6 @@
 #include <thrust/equal.h>
 #include <thrust/execution_policy.h>
 
-// STL
-#include <algorithm>
-#include <cstddef>
-#include <string>
-#include <vector>
-
 template <typename T>
 struct equal_benchmark : public primbench::benchmark_interface
 {
@@ -51,7 +45,7 @@ struct equal_benchmark : public primbench::benchmark_interface
     state.add_writes<T>(m_items);
 
     state.run([&] {
-      thrust::equal(policy, in.begin(), in.end(), out.begin());
+      thrust::equal(policy(alloc), in.begin(), in.end(), out.begin());
     });
   }
 
