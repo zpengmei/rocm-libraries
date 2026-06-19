@@ -90,7 +90,7 @@ function(add_thrust_benchmark BENCHMARK_SOURCE)
 endfunction()
 
 # TODO: GRADUALLY ADD ALL OF THESE OTHER BENCHMARKS BACK
-# 27/40 Finished...
+# 29/40 Finished...
 add_thrust_benchmark(bench/adjacent_difference/basic.cu)
 add_thrust_benchmark(bench/adjacent_difference/custom.cu)
 add_thrust_benchmark(bench/adjacent_difference/in_place.cu)
@@ -118,8 +118,8 @@ add_thrust_benchmark(bench/set_operations/symmetric_difference.cu)
 add_thrust_benchmark(bench/set_operations/symmetric_difference_by_key.cu)
 add_thrust_benchmark(bench/set_operations/union.cu)
 add_thrust_benchmark(bench/set_operations/union_by_key.cu)
-# add_thrust_benchmark(bench/shuffle/basic.cu)
-# add_thrust_benchmark(bench/sort/keys.cu)
+add_thrust_benchmark(bench/shuffle/basic.cu)
+add_thrust_benchmark(bench/sort/keys.cu)
 # add_thrust_benchmark(bench/sort/keys_custom.cu)
 # add_thrust_benchmark(bench/sort/pairs.cu)
 # add_thrust_benchmark(bench/sort/pairs_custom.cu)
