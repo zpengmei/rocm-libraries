@@ -1,6 +1,6 @@
 /******************************************************************************
  * Copyright (c) 2011-2023, NVIDIA CORPORATION.  All rights reserved.
- * Modifications Copyright (c) 2024-2025, Advanced Micro Devices, Inc.  All rights reserved.
+ * Modifications Copyright (c) 2024-2026, Advanced Micro Devices, Inc.  All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions are met:
@@ -72,11 +72,22 @@ struct base_set_benchmark : public primbench::benchmark_interface
     thrust::sort(in.begin(), in.begin() + items_in_A);
     thrust::sort(in.begin() + items_in_A, in.end());
 
+    OpT op{};
+
+    // not a warm-up run, we need to run once to determine the size of the output
+    const auto result_ends =
+      op(policy(alloc),
+         in.cbegin(),
+         in.cbegin() + items_in_A,
+         in.cbegin() + items_in_A,
+         in.cend(),
+         out.begin());
+
+    const size_t items_in_AB = thrust::distance(out.begin(), result_ends);
+
     state.set_items(m_items);
     state.add_reads<T>(m_items);
-    state.add_writes<T>(m_items);
-
-    OpT op {};
+    state.add_writes<T>(items_in_AB);
 
     state.run([&] {
       op(policy(alloc), in.cbegin(), in.cbegin() + items_in_A, in.cbegin() + items_in_A, in.cend(), out.begin());
@@ -91,23 +102,23 @@ private:
 };
 
 #define QUEUE(T, OpT, algo_name, entropy_reduction, input_size_ratio) \
-  for (size_t size : bench_utils::sizes(2 * sizeof(T)))                \
+  for (size_t size : bench_utils::sizes(2 * sizeof(T)))               \
     executor.queue<base_set_benchmark<T, OpT>>(size, algo_name, entropy_reduction, input_size_ratio);
 
 template <class OpT>
-void queue_benchmarks(const char* algo_name, const primbench::executor & executor){
-
+void queue_benchmarks(const char* algo_name, const primbench::executor& executor)
+{
   constexpr int entropy_reductions[] = {0, 4}; // 1.000, 0.201;
-  constexpr int input_size_ratios[] = {25, 50, 75};
+  constexpr int input_size_ratios[]  = {25, 50, 75};
 
-  for(int e : entropy_reductions){
-    for(int i : input_size_ratios){
+  for (int e : entropy_reductions)
+  {
+    for (int i : input_size_ratios)
+    {
       QUEUE(int8_t, OpT, algo_name, e, i);
       QUEUE(int16_t, OpT, algo_name, e, i);
       QUEUE(int32_t, OpT, algo_name, e, i);
       QUEUE(int64_t, OpT, algo_name, e, i);
     }
   }
-
-
 }
