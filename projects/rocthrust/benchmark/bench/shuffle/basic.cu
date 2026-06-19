@@ -103,7 +103,7 @@ private:
 };
 
 #define QUEUE(T)                                            \
-  for (size_t size : bench_utils::sizes(2 * sizeof(T)))     \
+  for (size_t size : bench_utils::sizes(sizeof(T)))         \
   {                                                         \
     executor.queue<shuffle_benchmark<T>>(size, "minstd");   \
     executor.queue<shuffle_benchmark<T>>(size, "ranlux24"); \
