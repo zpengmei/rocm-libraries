@@ -140,8 +140,8 @@ TYPED_TEST(HipcubDeviceSpmvTests, Spmv)
     constexpr int32_t wheel   = TestFixture::wheel;
     constexpr int32_t dense   = TestFixture::dense;
 
-	// Total input size for the test is the sum of the sizes of the two matrices it generates.
-	CHECK_SIZE_ENABLEMENT(static_cast<size_t>(grid_2d * grid_2d + grid_3d * grid_3d * grid_3d));
+    // Total input size for the test is the sum of the sizes of the two matrices it generates.
+    CHECK_SIZE_ENABLEMENT(static_cast<size_t>(grid_2d * grid_2d + grid_3d * grid_3d * grid_3d));
 
     hipStream_t stream = 0; // default
     if(TestFixture::use_graphs)
