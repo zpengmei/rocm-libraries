@@ -22,9 +22,9 @@
 
 #pragma once
 
-#include "primbench.hpp"
-
 #include <thrust/execution_policy.h>
+
+#include "primbench.hpp"
 
 #ifndef _MSC_VER
 using int128_t  = __int128_t;
@@ -35,12 +35,12 @@ using uint128_t = __uint128_t;
 
 /// This allows running rocThrust benchmarks with CCCL Thrust.
 #ifndef _THRUST_HAS_DEVICE_SYSTEM_STD
-  #define THRUST_HOST_DEVICE __host__ __device__
-  #define THRUST_DEVICE __device__
+#  define THRUST_HOST_DEVICE __host__ __device__
+#  define THRUST_DEVICE      __device__
 
-  #define _THRUST_LIBCXX_INCLUDE(LIB) <cuda/LIB>
-  #define _THRUST_STD ::cuda::std
-  #define _THRUST_LIBCXX ::cuda
+#  define _THRUST_LIBCXX_INCLUDE(LIB) <cuda/LIB>
+#  define _THRUST_STD                 ::cuda::std
+#  define _THRUST_LIBCXX              ::cuda
 #endif // _THRUST_HAS_DEVICE_SYSTEM_STD
 
 #if THRUST_DEVICE_SYSTEM == THRUST_DEVICE_SYSTEM_HIP
@@ -65,15 +65,15 @@ using uint128_t = __uint128_t;
 namespace bench_utils
 {
 
-#define HIP_CHECK(condition)                                                       \
-    {                                                                              \
-      hipError_t error = condition;                                                \
-      if (error != hipSuccess)                                                     \
-      {                                                                            \
-        std::cout << "HIP error: " << error << " line: " << __LINE__ << std::endl; \
-        exit(error);                                                               \
-      }                                                                            \
-    }
+#define HIP_CHECK(condition)                                                     \
+  {                                                                              \
+    hipError_t error = condition;                                                \
+    if (error != hipSuccess)                                                     \
+    {                                                                            \
+      std::cout << "HIP error: " << error << " line: " << __LINE__ << std::endl; \
+      exit(error);                                                               \
+    }                                                                            \
+  }
 
 struct less_t
 {
@@ -225,8 +225,12 @@ inline std::vector<size_t> sizes(size_t bytes_per_element)
 
   std::vector<size_t> result;
   for (size_t size : all_sizes)
+  {
     if (does_size_fit(bytes_per_element, size))
+    {
       result.push_back(size);
+    }
+  }
   return result;
 }
 
@@ -244,6 +248,7 @@ PRIMBENCH_REGISTER_TYPE(uint64_t, "u64")
 
 #ifndef _MSC_VER
 PRIMBENCH_REGISTER_TYPE(int128_t, "i128")
+PRIMBENCH_REGISTER_TYPE(uint128_t, "u128")
 #endif
 PRIMBENCH_REGISTER_TYPE(float, "f32")
 PRIMBENCH_REGISTER_TYPE(double, "f64")
