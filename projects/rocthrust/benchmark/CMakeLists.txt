@@ -89,7 +89,6 @@ function(add_thrust_benchmark BENCHMARK_SOURCE)
     rocm_install(TARGETS ${BENCHMARK_TARGET} COMPONENT benchmarks)
 endfunction()
 
-# TODO: GRADUALLY ADD ALL OF THESE OTHER BENCHMARKS BACK
 add_thrust_benchmark(bench/adjacent_difference/basic.cu)
 add_thrust_benchmark(bench/adjacent_difference/custom.cu)
 add_thrust_benchmark(bench/adjacent_difference/in_place.cu)
