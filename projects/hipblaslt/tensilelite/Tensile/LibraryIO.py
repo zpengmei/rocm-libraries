@@ -37,6 +37,7 @@ from Tensile.SolutionStructs.Problem import ProblemType, problemTypeToEnum
 
 from typing import IO, NamedTuple, List, Dict, Optional
 from Tensile.SolutionStructs.Solution import BiasTypeArgs, ActivationArgs
+from copy import deepcopy
 import io
 import os
 import sys
@@ -581,6 +582,36 @@ def parseLibraryLogicData(
                              srcFile
                          )
         return solutionObject
+
+    # Fork SK5 solutions to include StreamKWorkStealing=1 variants alongside
+    # the default WS=0 kernels.  Controlled by env var (default: enabled).
+    if os.environ.get("TENSILE_GENERATE_STREAMK_WS_VARIANTS", "1") == "1":
+        ws_copies = []
+        for i, sol in enumerate(data["Solutions"]):
+            if (sol.get("StreamK") in (4, 5)
+                    and sol.get("StreamKAtomic", 0) == 0
+                    and sol.get("StreamKWorkStealing", 0) == 0):
+                ws_copy = deepcopy(sol)
+                ws_copy["StreamKWorkStealing"] = 1
+                ws_copies.append((i, ws_copy))
+
+        if ws_copies:
+            ws_index_map = {}
+            for old_idx, ws_sol in ws_copies:
+                new_idx = len(data["Solutions"])
+                ws_index_map[old_idx] = new_idx
+                data["Solutions"].append(ws_sol)
+
+            libType = data.get("LibraryType", "")
+            if libType in ("Prediction", "FreeSize", "MLPClassification"):
+                data["Library"]["table"] = [0, len(data["Solutions"])]
+            elif libType == "Matching":
+                new_entries = []
+                for row in data["Library"]["table"]:
+                    sol_idx = row[1][0]
+                    if sol_idx in ws_index_map:
+                        new_entries.append([row[0], [ws_index_map[sol_idx], row[1][1]]])
+                data["Library"]["table"].extend(new_entries)
 
     solutions = [solutionStateToSolution(solutionState, assembler, isaInfoMap) for solutionState in data["Solutions"]]
     typeMismatches = getTypeMismatchCollector()

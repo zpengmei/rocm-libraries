@@ -333,10 +333,19 @@ namespace TensileLite
             if(rv)
             {
                 const int wsOverride = Debug::Instance().streamKWorkStealingOverride();
-                if(wsOverride == 0 && rv->sizeMapping.streamKWorkStealing != 0)
+                if(wsOverride >= 0 && rv->sizeMapping.streamKWorkStealing != wsOverride)
+                {
+                    auto topN = library->findTopSolutions(problem, hardware, 16);
                     rv = nullptr;
-                else if(wsOverride == 1 && rv->sizeMapping.streamKWorkStealing == 0)
-                    rv = nullptr;
+                    for(auto const& sol : topN)
+                    {
+                        if(sol && sol->sizeMapping.streamKWorkStealing == wsOverride)
+                        {
+                            rv = sol;
+                            break;
+                        }
+                    }
+                }
             }
 
             if(Debug::Instance().printLibraryLogicIndex())
