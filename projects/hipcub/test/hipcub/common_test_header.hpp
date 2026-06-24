@@ -57,17 +57,6 @@
 #define TEST_UTILS_INCLUDE_GAURD
 #include "test_utils.hpp"
 
-#if defined(__SANITIZE_ADDRESS__) || (defined(__has_feature) && __has_feature(address_sanitizer))
-    #define GTEST_SKIP_ASAN()                           \
-        do                                              \
-        {                                               \
-            GTEST_SKIP() << "Skipping test under ASan"; \
-        }                                               \
-        while(0)
-#else
-    #define GTEST_SKIP_ASAN()
-#endif
-
 #define HIP_CHECK(condition)         \
 {                                    \
     hipError_t error = condition;    \
