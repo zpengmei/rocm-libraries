@@ -174,6 +174,8 @@ bool AsmPrinter::printModifierAsDict(const Modifier& mod) {
 }
 
 void AsmPrinter::printDirective(const AsmDirective& directive) {
+    if (!options.emitComments && directive.kind == AsmDirectiveKind::TEXTBLOCK) return;
+
     os << std::string(static_cast<size_t>(options.indent), ' ');
     os << "\"st.asm_directive\"(\"" << directive.name << "\"";
     if (!directive.symbol.empty()) os << ", \"" << directive.symbol << "\"";

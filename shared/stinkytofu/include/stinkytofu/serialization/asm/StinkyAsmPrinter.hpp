@@ -36,6 +36,9 @@ namespace stinkytofu {
 struct AsmPrinterOptions {
     // Indentation for nested structures
     int indent = 2;
+
+    // Whether to print comment-only directives.
+    bool emitComments = false;
 };
 
 class STINKYTOFU_EXPORT AsmPrinter {
