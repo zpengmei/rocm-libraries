@@ -533,6 +533,12 @@ inline std::map<std::string, int>
         rv["MaxXcnt"] = 63;
     }
 
+    rv["HasAsynccnt"] = tryAssembler(isaVersion, assemblerPath, "s_wait_asynccnt 0", isDebug);
+    if(rv["HasAsynccnt"])
+    {
+        rv["MaxAsynccnt"] = 63;
+    }
+
     rv["SupportedSource"] = true;
 
     return rv;
