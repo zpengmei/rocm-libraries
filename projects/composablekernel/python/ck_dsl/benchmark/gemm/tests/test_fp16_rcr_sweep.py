@@ -10,10 +10,13 @@ import tempfile
 import unittest
 from pathlib import Path
 
+from ck_dsl.benchmark.gemm import fp16_rcr_sweep
 from ck_dsl.benchmark.gemm.fp16_rcr_sweep import (
+    GemmBuildRecord,
     GemmRunRecord,
     GemmSweepConfig,
     GemmSweepShape,
+    _history_rows,
     default_gemm_shapes,
     expand_sweep,
     _parse_shape,
@@ -144,6 +147,44 @@ class TestGemmFp16RcrSweepPlan(unittest.TestCase):
         self.assertEqual(shape.as_tuple(), (128, 256, 64))
         self.assertEqual(shape.label, "small")
         self.assertTrue(shape.verify)
+
+
+class TestGemmSweepHistory(unittest.TestCase):
+    def test_regression_store_is_imported(self):
+        # The --history/--compare path references regression_store at module
+        # scope; without this guard a missing import only surfaces at run time.
+        self.assertTrue(hasattr(fp16_rcr_sweep, "regression_store"))
+
+    def test_history_rows_join_runs_to_kernel_name(self):
+        shape = GemmSweepShape(512, 512, 512, "h")
+        builds = (
+            GemmBuildRecord(cache_key="k1", ok=True, kernel_name="kn_demo"),
+        )
+        runs = (
+            GemmRunRecord(
+                cache_key="k1",
+                shape=shape,
+                ok=True,
+                verify=False,
+                ms=1.0,
+                tflops=10.0,
+                gbps=5.0,
+                flop=2 * 512 ** 3,
+            ),
+        )
+        rows = _history_rows("gfx_demo", runs, builds)
+        self.assertEqual(len(rows), 1)
+        self.assertEqual(rows[0]["arch"], "gfx_demo")
+        self.assertEqual(rows[0]["kernel_name"], "kn_demo")
+        self.assertEqual(rows[0]["M"], 512)
+        self.assertEqual(rows[0]["cache_key"], "k1")
+
+    def test_history_rows_skip_unmeasured(self):
+        shape = GemmSweepShape(512, 512, 512, "h")
+        runs = (
+            GemmRunRecord(cache_key="k1", shape=shape, ok=False, verify=False),
+        )
+        self.assertEqual(_history_rows("gfx_demo", runs, ()), [])
 
 
 if __name__ == "__main__":

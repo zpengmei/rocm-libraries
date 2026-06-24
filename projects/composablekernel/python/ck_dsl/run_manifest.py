@@ -24,7 +24,8 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Optional, Tuple
 
-from .runtime.hip_module import Runtime
+from .benchmark import regression_store
+from .runtime.hip_module import Runtime, get_device_arch
 from .instances.common.deep_fused_conv_pool import (
     run_deep_fused_conv_pool_fp16_manifest_problem,
 )
@@ -56,6 +57,7 @@ class RunSummary:
     ms: float
     tflops: float
     gbps: float
+    flop: float = 0.0
     max_abs_diff: float = 0.0
     bad_count: int = 0
     total: int = 0
@@ -181,6 +183,7 @@ def run_manifest(
         ms=ms,
         tflops=flop / 1e9 / ms,
         gbps=bytes_xfer / 1e6 / ms,
+        flop=flop,
         max_abs_diff=max_abs_diff,
         bad_count=bad_count,
         total=total,
@@ -200,6 +203,12 @@ def main(argv: Optional[list[str]] = None) -> int:
     ap.add_argument("manifest")
     ap.add_argument("--shape", default=None)
     ap.add_argument("--verify", action="store_true")
+    ap.add_argument(
+        "--history",
+        default=None,
+        help="append this run's perf to a regression-history CSV (see "
+        "ck_dsl.benchmark.regression_store)",
+    )
     ns = ap.parse_args(argv)
     summary = run_manifest(
         Path(ns.manifest),
@@ -225,12 +234,41 @@ def main(argv: Optional[list[str]] = None) -> int:
                 "ms": summary.ms,
                 "tflops": summary.tflops,
                 "gbps": summary.gbps,
+                "flop": summary.flop,
                 "max_abs_diff": summary.max_abs_diff,
                 "bad_count": summary.bad_count,
                 "total": summary.total,
             }
         )
     )
+    if ns.history:
+        manifest = json.loads(Path(ns.manifest).read_text())
+        shp = _parse_shape(ns.shape) or tuple(manifest.get("default_shape", ()))
+        M, N, K = (list(shp) + ["", "", ""])[:3]
+        ok = (not ns.verify) or summary.bad_count == 0
+        # Common-core columns first so a mixed (sweep+manifest) history keeps the
+        # fields compare()/consistency_error() need; kind/max_abs_diff are extras.
+        row = {
+            "arch": get_device_arch() or "",
+            "kernel_name": str(manifest.get("kernel_name", "")),
+            "M": M,
+            "N": N,
+            "K": K,
+            "ms": summary.ms,
+            "tflops": summary.tflops,
+            "gbps": summary.gbps,
+            "flop": summary.flop,
+            "ok": ok,
+            "verify": ns.verify,
+            "kind": str(manifest.get("kind", "")),
+            "max_abs_diff": summary.max_abs_diff,
+        }
+        regression_store.append_results(
+            ns.history,
+            regression_store.stamp_rows([row], source="manifest"),
+        )
+        print(f"appended 1 row to {ns.history}")
+
     if ns.verify and summary.bad_count:
         return 1
     return 0

@@ -32,6 +32,7 @@ from typing import Mapping, Optional, Sequence
 from ...dispatch import GemmRequest, dispatch_gemm_fp16
 from ...dispatch.gemm import GEMM_FP16_REGISTRY, build_kernel
 from ...helpers import compile_kernel, make_gemm_manifest, write_artifact
+from .. import regression_store
 
 SWEEP_SCHEMA = "ck.dsl.benchmark.gemm.fp16_rcr_sweep/v1"
 
@@ -123,6 +124,7 @@ class GemmRunRecord:
     ms: Optional[float] = None
     tflops: Optional[float] = None
     gbps: Optional[float] = None
+    flop: Optional[float] = None
     error: str = ""
 
     def as_dict(self) -> dict:
@@ -320,26 +322,30 @@ def compile_sweep_variants(
 
 def _parse_perf(
     stdout: str,
-) -> tuple[Optional[float], Optional[float], Optional[float]]:
+) -> tuple[Optional[float], Optional[float], Optional[float], Optional[float]]:
     """Parse the structured ``PerfJSON:`` line emitted by ``run_manifest``.
 
     Both ends live in this package, so we parse the machine-readable line
-    rather than the human ``Perf:`` string. Returns ``(None, None, None)`` only
-    when the line is absent or malformed; the caller treats that as a failure.
+    rather than the human ``Perf:`` string. Returns ``(ms, tflops, gbps, flop)``;
+    all ``None`` when the line is absent or malformed (the caller treats that as a
+    failure). ``flop`` is ``None`` against older ``run_manifest`` output that did
+    not emit it — it is a bonus column for the fidelity guard, not required.
     """
     for line in stdout.splitlines():
         if not line.startswith("PerfJSON:"):
             continue
         try:
             payload = json.loads(line.removeprefix("PerfJSON:").strip())
+            flop = payload.get("flop")
             return (
                 float(payload["ms"]),
                 float(payload["tflops"]),
                 float(payload["gbps"]),
+                float(flop) if flop is not None else None,
             )
         except Exception:
-            return None, None, None
-    return None, None, None
+            return None, None, None, None
+    return None, None, None, None
 
 
 def run_build_record(
@@ -377,7 +383,7 @@ def run_build_record(
         timeout=timeout_s,
         env=env,
     )
-    ms, tflops, gbps = _parse_perf(proc.stdout or "")
+    ms, tflops, gbps, flop = _parse_perf(proc.stdout or "")
     metrics_ok = ms is not None and tflops is not None and gbps is not None
     ok = proc.returncode == 0 and metrics_ok
     if proc.returncode != 0:
@@ -396,6 +402,7 @@ def run_build_record(
         ms=ms,
         tflops=tflops,
         gbps=gbps,
+        flop=flop,
         error=error,
     )
 
@@ -590,6 +597,40 @@ def _parse_shape(raw: str) -> GemmSweepShape:
     return GemmSweepShape(dims[0], dims[1], dims[2], label=label, verify=verify)
 
 
+def _history_rows(
+    arch: str,
+    runs: Sequence[GemmRunRecord],
+    builds: Sequence[GemmBuildRecord],
+) -> list[dict]:
+    """Join measured runs to their kernel_name (from builds) into history rows.
+
+    Key columns (arch, kernel_name, M, N, K) match the manifest path so a mixed
+    history compares cleanly; cache_key is carried as a disambiguating extra.
+    """
+    name_by_key = {b.cache_key: b.kernel_name for b in builds}
+    rows: list[dict] = []
+    for r in runs:
+        if r.ms is None:  # build/run failed — nothing measured to record
+            continue
+        rows.append(
+            {
+                "arch": arch,
+                "kernel_name": name_by_key.get(r.cache_key, r.cache_key),
+                "M": r.shape.M,
+                "N": r.shape.N,
+                "K": r.shape.K,
+                "ms": r.ms,
+                "tflops": r.tflops,
+                "gbps": r.gbps,
+                "flop": r.flop if r.flop is not None else "",
+                "ok": r.ok,
+                "verify": r.verify,
+                "cache_key": r.cache_key,
+            }
+        )
+    return rows
+
+
 def main(argv: Optional[Sequence[str]] = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--arch", default="gfx950")
@@ -606,6 +647,19 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
     parser.add_argument("--output-dir", type=Path, required=True)
     parser.add_argument("--json", type=Path, default=None)
     parser.add_argument("--csv", type=Path, default=None)
+    parser.add_argument(
+        "--history",
+        type=Path,
+        default=None,
+        help="append each run's perf to an append-only regression-history CSV",
+    )
+    parser.add_argument(
+        "--compare",
+        action="store_true",
+        help="after recording, diff the latest run vs the previous run in "
+        "--history and exit non-zero on a tflops regression",
+    )
+    parser.add_argument("--threshold", type=float, default=0.05)
     parser.add_argument("--compile", action="store_true")
     parser.add_argument("--run", action="store_true")
     parser.add_argument("--parallel", type=int, default=1)
@@ -657,7 +711,36 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
         f"builds {len(builds)}, runs {len(runs)}"
     )
     print(f"wrote {json_path}")
-    return 1 if any(not r.ok for r in runs) or any(not b.ok for b in builds) else 0
+
+    rc = 1 if any(not r.ok for r in runs) or any(not b.ok for b in builds) else 0
+
+    if args.history and runs:
+        rows = _history_rows(args.arch, runs, builds)
+        if rows:
+            regression_store.append_results(
+                args.history,
+                regression_store.stamp_rows(rows, source="sweep"),
+            )
+            print(f"appended {len(rows)} rows to {args.history}")
+
+    if args.compare and args.history:
+        history = regression_store.load_results(args.history)
+        baseline, current = regression_store.split_latest_run(history)
+        if not baseline:
+            print("only one run in history — nothing to compare against")
+        else:
+            regs = regression_store.compare(
+                baseline, current, threshold=args.threshold
+            )
+            if regs:
+                print(f"{len(regs)} tflops regression(s) > {args.threshold:.0%}:")
+                for reg in regs:
+                    print(regression_store._format_regression(reg, "tflops"))
+                rc = 1
+            else:
+                print(f"no tflops regressions > {args.threshold:.0%}")
+
+    return rc
 
 
 if __name__ == "__main__":

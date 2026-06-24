@@ -10,12 +10,24 @@ lives in `ck_dsl.dispatch`.
 ck_dsl/benchmark/
   __init__.py
   summary.py                 # generic repeated-run summaries for manifests
+  regression_store.py        # append-only perf history + regression compare
+  tests/
+    test_regression_store.py # no-GPU store/compare tests
   gemm/
     fp16_rcr_sweep.py        # dispatcher-backed FP16 RCR GEMM sweep harness
     tests/
       test_fp16_rcr_sweep.py
       test_fp16_rcr_multigpu.py
 ```
+
+## Performance Regression Tracking
+
+`regression_store.py` records each run's perf to an append-only CSV keyed by
+`(arch, kernel_name, M, N, K)` and flags TFLOPS drops across runs. Recorded via
+`--history` on the sweep or `ck_dsl.run_manifest`; compared via
+`python -m ck_dsl.benchmark.regression_store --history H --compare` (non-zero exit
+on a regression). See `dsl_docs/development/performance_regression.md` for usage,
+a no-GPU walkthrough, and CI notes.
 
 ## GEMM FP16 RCR Sweep
 
