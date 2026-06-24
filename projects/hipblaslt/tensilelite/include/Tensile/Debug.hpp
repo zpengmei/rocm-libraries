@@ -80,6 +80,12 @@ namespace TensileLite
         // Sourced from the TENSILE_STREAMK5_FORCE_MODE environment variable.
         int streamK5ForceMode() const;
 
+        // -1 = unset (use whatever the library provides)
+        //  0 = reject solutions with StreamKWorkStealing=1
+        //  1 = prefer solutions with StreamKWorkStealing=1 (fall back if none)
+        // Sourced from the TENSILE_STREAMK_WORK_STEALING environment variable.
+        int streamKWorkStealingOverride() const;
+
         int useExperimentalSelection() const;
 
         std::string getMetric() const;
@@ -155,6 +161,8 @@ namespace TensileLite
         bool        m_disableStaggerU     = false;
         // -1 = unset (use API attribute); 0 = force static SK3; 1 = force dynamic SK4
         int         m_streamK5ForceMode   = -1;
+        // -1 = unset; 0 = reject WS solutions; 1 = prefer WS solutions
+        int         m_streamKWorkStealingOverride = -1;
         StringSet   m_excludedFromGetAll;
 
         Debug();

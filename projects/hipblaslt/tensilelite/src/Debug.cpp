@@ -130,6 +130,11 @@ namespace TensileLite
         return m_streamK5ForceMode;
     }
 
+    int Debug::streamKWorkStealingOverride() const
+    {
+        return m_streamKWorkStealingOverride;
+    }
+
     int Debug::useExperimentalSelection() const
     {
         return m_experimentSelection;
@@ -214,6 +219,15 @@ namespace TensileLite
             const long val = strtol(sk5Force, &end, 0);
             if(end != sk5Force && *end == '\0' && val >= -1 && val <= 1)
                 m_streamK5ForceMode = static_cast<int>(val);
+        }
+
+        const char* skWS = std::getenv("TENSILE_STREAMK_WORK_STEALING");
+        if(skWS)
+        {
+            char* end = nullptr;
+            const long val = strtol(skWS, &end, 0);
+            if(end != skWS && *end == '\0' && val >= -1 && val <= 1)
+                m_streamKWorkStealingOverride = static_cast<int>(val);
         }
 
         const char* exp_select = std::getenv("TENSILE_SOLUTION_SELECTION_METHOD");

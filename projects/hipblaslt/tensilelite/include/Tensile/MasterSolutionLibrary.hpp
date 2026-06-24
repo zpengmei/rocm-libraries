@@ -330,6 +330,15 @@ namespace TensileLite
             else
                 rv = library->findBestSolution(problem, hardware, fitness);
 
+            if(rv)
+            {
+                const int wsOverride = Debug::Instance().streamKWorkStealingOverride();
+                if(wsOverride == 0 && rv->sizeMapping.streamKWorkStealing != 0)
+                    rv = nullptr;
+                else if(wsOverride == 1 && rv->sizeMapping.streamKWorkStealing == 0)
+                    rv = nullptr;
+            }
+
             if(Debug::Instance().printLibraryLogicIndex())
             {
                 if(rv)
@@ -362,24 +371,24 @@ namespace TensileLite
                                                             Hardware const&  hardware,
                                                             int numSolutions) const override
         {
+            SolutionVector<MySolution> result;
             if(Debug::Instance().printSolutionSelectionTime())
             {
-                auto   start  = std::chrono::steady_clock::now();
-                auto   result = library->findTopSolutions(problem, hardware, numSolutions);
-                auto   end    = std::chrono::steady_clock::now();
-                double time   = std::chrono::duration<double, std::micro>(end - start).count();
+                auto start = std::chrono::steady_clock::now();
+                result     = library->findTopSolutions(problem, hardware, numSolutions);
+                auto   end = std::chrono::steady_clock::now();
+                double time
+                    = std::chrono::duration<double, std::micro>(end - start).count();
                 std::cout << "Solution selection time: " << time << " us" << std::endl;
                 lastFindTopRetAll = library->lastFindTopAlreadyRetAll();
-
-                return result;
             }
             else
             {
-                const auto& result = library->findTopSolutions(problem, hardware, numSolutions);
+                result = library->findTopSolutions(problem, hardware, numSolutions);
                 lastFindTopRetAll = library->lastFindTopAlreadyRetAll();
-
-                return result;
             }
+
+            return filterWorkStealing(result);
         }
 
         virtual bool lastFindTopAlreadyRetAll() const override
@@ -393,6 +402,35 @@ namespace TensileLite
                                         int                           numSolutions) const override
         {
             return library->findTopSolutionsGroupedGemm(problems, hardware, numSolutions);
+        }
+
+    private:
+        SolutionVector<MySolution>
+            filterWorkStealing(SolutionVector<MySolution> const& candidates) const
+        {
+            const int wsOverride = Debug::Instance().streamKWorkStealingOverride();
+            if(wsOverride == -1)
+                return candidates;
+
+            SolutionVector<MySolution> filtered;
+            filtered.reserve(candidates.size());
+
+            for(auto const& sol : candidates)
+            {
+                if(!sol)
+                    continue;
+                const int solWS = sol->sizeMapping.streamKWorkStealing;
+                if(wsOverride == 0 && solWS != 0)
+                    continue;
+                if(wsOverride == 1 && solWS == 0)
+                    continue;
+                filtered.push_back(sol);
+            }
+
+            if(filtered.empty())
+                return candidates;
+
+            return filtered;
         }
     };
 
