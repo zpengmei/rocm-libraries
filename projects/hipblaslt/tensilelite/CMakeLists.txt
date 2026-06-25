@@ -53,6 +53,7 @@ if(TENSILELITE_ENABLE_HOST)
         PUBLIC
             $<BUILD_INTERFACE:rocisa::rocisa-cpp>
             roc::origami
+            roc::tilewright-hipblaslt
         PRIVATE
             hip::device
             ZLIB::ZLIB

@@ -26,10 +26,10 @@
 
 #pragma once
 
+#include <Tensile/Macros.hpp>
 #include <cstdlib>
 #include <set>
 #include <string>
-#include <Tensile/Macros.hpp>
 
 #ifdef Tensile_ENABLE_MARKER
 #include <roctracer/roctx.h>
@@ -63,6 +63,8 @@ namespace TensileLite
         bool printWinningKernelName() const;
 
         bool usePredictionLibrary() const;
+
+        bool useTilewright() const;
 
         bool printLibraryLogicIndex() const;
 
@@ -146,6 +148,7 @@ namespace TensileLite
         int         m_experimentSelection = 0;
         int         m_solution_index      = -1;
         bool        m_predictionLib       = false;
+        bool        m_tilewright          = false;
         std::string m_metric              = "";
         int         m_gridbasedTopSols    = 1;
         bool        m_benchmark           = false;
@@ -154,8 +157,8 @@ namespace TensileLite
         bool        m_printMarker         = false;
         bool        m_disableStaggerU     = false;
         // -1 = unset (use API attribute); 0 = force static SK3; 1 = force dynamic SK4
-        int         m_streamK5ForceMode   = -1;
-        StringSet   m_excludedFromGetAll;
+        int       m_streamK5ForceMode = -1;
+        StringSet m_excludedFromGetAll;
 
         Debug();
     };
