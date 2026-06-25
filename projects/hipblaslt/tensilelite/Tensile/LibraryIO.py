@@ -43,6 +43,7 @@ import os
 import sys
 import subprocess
 import re
+import zlib
 
 try:
     import orjson as json
@@ -260,9 +261,11 @@ def writeJson(filename, data):
         f.write(json_object)
 
 def writeMsgPack(filename, data):
-    """Writes data to file in Message Pack format."""
-    with open(filename, "wb") as f:
-        msgpack.pack(data, f)
+    """Writes data to file in compressed Message Pack format (.dat.zlib)."""
+    raw = msgpack.packb(data)
+    compressed = zlib.compress(raw, 9)
+    with open(filename + ".zlib", "wb") as f:
+        f.write(compressed)
 
 def _writeSolutionsHeader(f: IO[str], problemSizes: Optional[ProblemSizes], biasTypeArgs: Optional[BiasTypeArgs], activationArgs: Optional[ActivationArgs]) -> None:
     """Write the YAML header (version, problem sizes, bias/activation args)."""
@@ -429,7 +432,8 @@ def parseSolutionsData(
                              printIndexAssignmentInfo,
                              assembler,
                              isaInfoMap,
-                             srcFile
+                             srcFile,
+                             raiseProblemTypeOnTypeMismatch=False,
                          )
         solutions.append(solutionObject)
     problemType = solutions[0]["ProblemType"]
@@ -533,7 +537,12 @@ def parseLibraryLogicData(
                 .format(srcFile, data["MinimumRequiredVersion"], __version__) )
 
     # unpack problemType
-    problemType = ProblemType(data["ProblemType"], printIndexAssignmentInfo, srcFile=srcFile)
+    problemType = ProblemType(
+        data["ProblemType"],
+        printIndexAssignmentInfo,
+        srcFile=srcFile,
+        raiseOnTypeMismatch=False,
+    )
 
     # unpack solution
     def solutionStateToSolution(solutionState, assembler, isaInfoMap) -> Solution:
@@ -579,7 +588,8 @@ def parseLibraryLogicData(
                              printIndexAssignmentInfo,
                              assembler,
                              isaInfoMap,
-                             srcFile
+                             srcFile,
+                             raiseProblemTypeOnTypeMismatch=False,
                          )
         return solutionObject
 
