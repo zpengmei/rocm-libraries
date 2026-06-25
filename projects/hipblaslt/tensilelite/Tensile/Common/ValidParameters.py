@@ -316,6 +316,19 @@ validParameters = { # we need to make sure this matches develop
     #   PGR==2: reject (use -1 or 0 in that case)
     # 1LDSBuffer will be 0 if DtlPlusLdsBuf if enabled
     "DtlPlusLdsBuf": [-1,0,1],
+    # Force allocating PGR+1 (i.e. 3) LDS buffers when PrefetchGlobalRead==2,
+    # if we have enough LDS memory size. Same idea as DtlPlusLdsBuf but it does
+    # NOT require DirectToLdsA+B, so it can be used on the general (e.g. gfx1250)
+    # PGR2 path. The extra LDS block lets the next-iteration global reads be
+    # scheduled over the barrier without colliding with the buffer currently
+    # being read.
+    # -1: auto (currently disabled; reserved for future heuristics)
+    #  0: disable
+    #  1: enable (forced; set to 0 if not applicable)
+    # Only applies for PrefetchGlobalRead==2 and ScheduleIterAlg==3.
+    # If the resulting LDS usage exceeds MaxLDS, fall back to 2 LDS buffers.
+    # 1LDSBuffer will be 0 if PlusLdsBuf is enabled.
+    "PlusLdsBuf": [-1,0,1],
     # We use double LDS buffer when PrefetchGlobalRead.
     # While it reads data from LDS[0]/[1], it prefetch global data and writes to LDS[1]/[0]
     # If we can make sure all data are read from LDS to register before writing data to LDS, we can use 1 LDS buffer to save LDS memory.

@@ -4650,6 +4650,24 @@ class Solution(collections.abc.Mapping):
         # force 1LDSBuffer = 0
         state["1LDSBuffer"] = 0
 
+    # check for auto PlusLdsBuf
+    # PlusLdsBuf forces PGR+1 (3) LDS buffers for PGR2 without requiring DirectToLds.
+    if state["PlusLdsBuf"] == -1:
+      # auto mode currently disabled; enable explicitly with PlusLdsBuf=1
+      state["PlusLdsBuf"] = 0
+    # disable PlusLdsBuf if not applicable
+    if state["PlusLdsBuf"]:
+      # PGR==2 only (PGR>=3 already allocates PGR LDS blocks)
+      if state["PrefetchGlobalRead"] != 2:
+        state["PlusLdsBuf"] = 0
+      # SIA==3 only
+      if state["_ScheduleIterAlg"] != 3:
+        state["PlusLdsBuf"] = 0
+      # restrict feature combinations
+      if state["PlusLdsBuf"]:
+        # force 1LDSBuffer = 0
+        state["1LDSBuffer"] = 0
+
     # Here, 1LDSBuffer == -1 is not resolved yet.
     # (cannot move 1LDSBuffer==-1 resolution code above because of referring ldsNumBytesAB)
     # Assuming larger buffer here
@@ -4661,6 +4679,10 @@ class Solution(collections.abc.Mapping):
       state["1LDSBuffer"] = 0
     if state["PrefetchGlobalRead"] >= 2 and state["DtlPlusLdsBuf"]:
       # PGR>=2 + DtlPlusLdsBuf case, try to allocate PGR+1 LDSBlk to schedule GR over barrier
+      numLdsBlk = state["PrefetchGlobalRead"] + 1
+    if state["PrefetchGlobalRead"] == 2 and state["PlusLdsBuf"]:
+      # PGR2 + PlusLdsBuf case, allocate PGR+1 (3) LDSBlk to schedule GR over barrier
+      # (same as DtlPlusLdsBuf but without the DirectToLds requirement)
       numLdsBlk = state["PrefetchGlobalRead"] + 1
 
     def setLdsOffsets(offsetBlk, numLdsBlk, ldsNumBytesB):
@@ -4733,9 +4755,9 @@ class Solution(collections.abc.Mapping):
         offsetBlk = roundupOffsetBlk
 
       ldsNumBytesAB = setLdsOffsets(offsetBlk, numLdsBlk, ldsNumBytesB)
-      # decrement numLdsBlk for DtlPlusLdsBuf if it exceeds MaxLDS
-      # PGR 2 case, reject kernel (need to use StoreSwapAddr in that case)
-      if state["DtlPlusLdsBuf"] and ldsNumBytesAB > state["MaxLDS"]:
+      # decrement numLdsBlk for DtlPlusLdsBuf/PlusLdsBuf if it exceeds MaxLDS
+      # PGR 2 case, fall back to 2 LDS buffers (need to use StoreSwapAddr in that case)
+      if (state["DtlPlusLdsBuf"] or state["PlusLdsBuf"]) and ldsNumBytesAB > state["MaxLDS"]:
         numLdsBlk -= 1
         # continue with original logic for PGR2 + numLdsBlk==2
         if state["PrefetchGlobalRead"] == 2:
@@ -4745,8 +4767,9 @@ class Solution(collections.abc.Mapping):
             offsetBlk = roundupOffsetBlk
         # re-calculate LDS size with numLdsBlk==2
         ldsNumBytesAB = setLdsOffsets(offsetBlk, numLdsBlk, ldsNumBytesB)
-        # unset DtlPlusLdsBuf
+        # unset DtlPlusLdsBuf/PlusLdsBuf
         state["DtlPlusLdsBuf"] = 0
+        state["PlusLdsBuf"] = 0
     else:
       ldsNumBytesAB = state["LdsOffsetB"] + ldsNumBytesB
     state["NumLdsBlk"] = numLdsBlk
