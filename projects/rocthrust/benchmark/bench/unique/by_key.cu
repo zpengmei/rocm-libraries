@@ -34,6 +34,21 @@
 #include <thrust/execution_policy.h>
 #include <thrust/unique.h>
 
+#define CHECK_VALID(T, K, S, M)                                                                                       \
+  bool valid = true;                                                                                                  \
+  try                                                                                                                 \
+  {                                                                                                                   \
+    constexpr std::size_t min_segment_size = 1;                                                                       \
+    thrust::device_vector<K> in_keys       = bench_utils::generate.uniform.key_segments(S, 123, min_segment_size, M); \
+    thrust::device_vector<K> out_keys(S);                                                                             \
+    thrust::device_vector<T> in_vals(S);                                                                              \
+    thrust::device_vector<T> out_vals(S);                                                                             \
+  }                                                                                                                   \
+  catch (const ::thrust::system::detail::bad_alloc& e)                                                                \
+  {                                                                                                                   \
+    valid = false;                                                                                                    \
+  }
+
 template <typename T, typename K>
 struct unique_benchmark : public primbench::benchmark_interface
 {
@@ -61,7 +76,7 @@ struct unique_benchmark : public primbench::benchmark_interface
     constexpr std::size_t min_segment_size = 1;
     thrust::device_vector<K> in_keys =
       bench_utils::generate.uniform.key_segments(m_items, state.seed, min_segment_size, max_segment_size);
-    ;
+
     thrust::device_vector<K> out_keys(m_items);
     thrust::device_vector<T> in_vals(m_items);
     thrust::device_vector<T> out_vals(m_items);
@@ -94,7 +109,11 @@ private:
 
 #define QUEUE_KEY(K, T, M)                                            \
   for (size_t size : bench_utils::sizes(2 * (sizeof(T) + sizeof(K)))) \
-    executor.queue<unique_benchmark<T, K>>(size, M);
+  {                                                                   \
+    CHECK_VALID(T, K, size, M)                                        \
+    if (valid)                                                        \
+      executor.queue<unique_benchmark<T, K>>(size, M);                \
+  }
 
 #ifndef _MSC_VER
 #  define QUEUE(K, M)          \
@@ -128,7 +147,8 @@ int main(int argc, char* argv[])
 {
   primbench::settings settings;
   settings.size                 = 1; // bench_utils::sizes() calculates it later.
-  settings.min_gpu_ms_per_batch = 10;
+  settings.min_gpu_ms_per_batch = 100;
+  settings.batch_window_size    = 2;
   primbench::executor executor(argc, argv, settings, primbench::flags::sync);
 
   constexpr size_t max_segment_sizes[] = {1, 4, 8};
