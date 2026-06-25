@@ -37,7 +37,6 @@ from Tensile.SolutionStructs.Problem import ProblemType, problemTypeToEnum
 
 from typing import IO, NamedTuple, List, Dict, Optional
 from Tensile.SolutionStructs.Solution import BiasTypeArgs, ActivationArgs
-from copy import deepcopy
 import io
 import os
 import sys
@@ -593,35 +592,36 @@ def parseLibraryLogicData(
                          )
         return solutionObject
 
-    # Fork SK5 solutions to include StreamKWorkStealing=1 variants alongside
-    # the default WS=0 kernels.  Controlled by env var (default: enabled).
-    if os.environ.get("TENSILE_GENERATE_STREAMK_WS_VARIANTS", "1") == "1":
-        ws_copies = []
-        for i, sol in enumerate(data["Solutions"]):
+    # StreamK work-stealing (WS) codegen mode for SK4/SK5 solutions. Binary
+    # choice producing two separate device libraries:
+    #   "off"  -> leave solutions as-is (WS=0), no forking; the no-WS library.
+    #   "only" -> flip matching solutions to WS=1 in place (no duplicates, no
+    #             table changes); the WS-only library.
+    # Default (unset/empty/unrecognized) is "off". TENSILE_STREAMK_WS_MODE takes
+    # precedence; otherwise fall back to the deprecated alias
+    # TENSILE_GENERATE_STREAMK_WS_VARIANTS ("0" -> off, "1" -> only).
+    wsMode = os.environ.get("TENSILE_STREAMK_WS_MODE")
+    if wsMode is None or wsMode == "":
+        legacy = os.environ.get("TENSILE_GENERATE_STREAMK_WS_VARIANTS")
+        if legacy is not None:
+            sys.stderr.write("WARNING: TENSILE_GENERATE_STREAMK_WS_VARIANTS is "
+                             "deprecated; use TENSILE_STREAMK_WS_MODE instead.\n")
+            wsMode = "only" if legacy == "1" else "off"
+        else:
+            wsMode = "off"
+    else:
+        wsMode = wsMode.lower()
+    if wsMode not in ("off", "only"):
+        sys.stderr.write("WARNING: unrecognized TENSILE_STREAMK_WS_MODE "
+                         "'{}'; defaulting to 'off'.\n".format(wsMode))
+        wsMode = "off"
+
+    if wsMode == "only":
+        for sol in data["Solutions"]:
             if (sol.get("StreamK") in (4, 5)
                     and sol.get("StreamKAtomic", 0) == 0
                     and sol.get("StreamKWorkStealing", 0) == 0):
-                ws_copy = deepcopy(sol)
-                ws_copy["StreamKWorkStealing"] = 1
-                ws_copies.append((i, ws_copy))
-
-        if ws_copies:
-            ws_index_map = {}
-            for old_idx, ws_sol in ws_copies:
-                new_idx = len(data["Solutions"])
-                ws_index_map[old_idx] = new_idx
-                data["Solutions"].append(ws_sol)
-
-            libType = data.get("LibraryType", "")
-            if libType in ("Prediction", "FreeSize", "MLPClassification"):
-                data["Library"]["table"] = [0, len(data["Solutions"])]
-            elif libType == "Matching":
-                new_entries = []
-                for row in data["Library"]["table"]:
-                    sol_idx = row[1][0]
-                    if sol_idx in ws_index_map:
-                        new_entries.append([row[0], [ws_index_map[sol_idx], row[1][1]]])
-                data["Library"]["table"].extend(new_entries)
+                sol["StreamKWorkStealing"] = 1
 
     solutions = [solutionStateToSolution(solutionState, assembler, isaInfoMap) for solutionState in data["Solutions"]]
     typeMismatches = getTypeMismatchCollector()

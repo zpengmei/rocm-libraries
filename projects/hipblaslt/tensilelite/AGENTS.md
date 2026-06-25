@@ -121,8 +121,23 @@ invoke rocisa            # editable pip install — picks up Python changes imme
 
 `include/Tensile/` and `src/` implement the runtime that selects and dispatches kernels at hipBLASLt call time. Key headers: `Tensile.hpp`, `ContractionProblem.hpp`, `ContractionSolution.hpp`, `SolutionLibrary.hpp`. `ContractionSolution.cpp` implements kernel dispatch.
 
+## Local environment helper scripts (`~/bin`)
+
+This dev box has helper scripts on `PATH` (symlinked from `~/.dotfiles/scripts/bin`). Test/debug agents should prefer these over hand-rolling commands:
+
+| Script | Purpose |
+|--------|---------|
+| `tlbuild <gpu_targets> [rocm_path]` | Configure + build the `tensilelite` cmake preset into `build_tmp/` (`-j32`, amdclang/amdclang++). Run from `tensilelite/`. |
+| `tlrun <args>` | Thin wrapper for `python3 Tensile/bin/Tensile <args>`. |
+| `tlpyenv` | **Source it** (`source tlpyenv`): creates/activates `.venv` and installs `requirements.txt`. |
+| `rocbuild` | Superbuild via cmake from `projects/hipblaslt` (Release, exports compile_commands). |
+| `rocbuild-tltests ['<gtest_filter>']` | Build only the `tensilelite-tests` C++ gtest target (host lib + origami + mxdatagen; skips slow device-library codegen). Optional arg runs `--gtest_filter`. Use this for C++ runtime/host-library changes (e.g. `MasterSolutionLibrary.hpp`). |
+| `rocemu-env` | **Source it**: sets `HSA_XNACK=0` etc. for emulation. |
+| `rocenroot [suffix] [image]` / `rocssh [gfx_arch]` | Enroot container / SLURM GPU-node ssh helpers. |
+
 ## Gotchas
 
+- **`invoke rocisa` is required before the first `invoke build-client`** in a fresh checkout/venv — the client build expects the rocisa C++ module to already be installed/importable. Run `invoke rocisa` once after cloning (or after `rocisa/` `pyproject.toml`/`CMakeLists.txt` changes), then `invoke build-client`.
 - `tox -e unit` skips the client build (hence "fast"); the env itself runs `pip install {toxinidir}/rocisa/` so it does **not** require a prior `invoke build-client` for rocisa to be importable. To run `pytest` directly outside tox, install rocisa once with `invoke rocisa`.
 - `tox -e py3` (the full common-tests env) does invoke `build-client` itself inside its `commands` block — that's where the "long client build" happens. Override its CMake/client args via `TENSILELITE_CLIENT_ARGS`, and parallelism via `TENSILE_NUM_PYTEST_WORKERS` (default 4).
 - Two test trees exist: `Tensile/Tests/` (YAML kernel tests, run via `tox`/`pytest`) vs `tests/` (C++ host-library gtest, gated by CMake `TENSILELITE_BUILD_TESTING=ON`).

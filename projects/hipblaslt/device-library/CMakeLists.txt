@@ -5,6 +5,7 @@ set(TENSILELITE_BUILD_PARALLEL_LEVEL "" CACHE STRING "Number of CPU cores to use
 set(TENSILELITE_KEEP_BUILD_TMP OFF CACHE STRING "Keep temporary build directory for device libraries (turning this ON  bloat the build size).")
 set(TENSILELITE_ASM_DEBUG "" CACHE STRING "Keep debug information for built code objects.")
 set(TENSILELITE_LOGIC_FILTER "" CACHE STRING "Cutomsized logic filter, default is *, i.e. all logics.")
+set(TENSILELITE_STREAMK_WS_MODE "" CACHE STRING "StreamK work-stealing codegen mode (off|only); empty uses the TensileCreateLibrary default.")
 set(TENSILELITE_NO_COMPRESS "" CACHE STRING "Do not compress device code object files.")
 set(TENSILELITE_EXPERIMENTAL "" CACHE STRING "Process experimental logic files.")
 set(TENSILELITE_ENABLE_ASM_COMMENTS OFF CACHE STRING "Turn on asm comments when building gemm libraries.")
@@ -82,7 +83,12 @@ add_custom_command(
 )
 
 set(output_stamp "${CMAKE_CURRENT_BINARY_DIR}/Tensile.stamp")
+set(TENSILE_CREATE_LIBRARY_ENV "")
+if(TENSILELITE_STREAMK_WS_MODE)
+    set(TENSILE_CREATE_LIBRARY_ENV ${CMAKE_COMMAND} -E env "TENSILE_STREAMK_WS_MODE=${TENSILELITE_STREAMK_WS_MODE}")
+endif()
 set(TENSILE_CREATE_LIBRARY_COMMAND
+    ${TENSILE_CREATE_LIBRARY_ENV}
     ${HIPBLASLT_PYTHON_COMMAND} -m Tensile.TensileCreateLibrary
     ${TENSILELITE_BUILD_OPTS}
     ${HIPBLASLT_LIBLOGIC_PATH}

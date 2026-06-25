@@ -344,6 +344,7 @@ def _install_blis(c, build_dir: Path):
         "keep_build_tmp": "Keep the temporary build artifacts.",
         "experimental": "Include 'Experimental' logic directories.",
         "logic_filter": "Logic YAML filter (e.g. 'gfx942/Equality/*').",
+        "streamk_ws_mode": "StreamK work-stealing codegen mode: 'off' or 'only'.",
         "legacy_hipblas_direct": "Enable legacy HIPBLAS_DIRECT mode.",
         "disable_marker": "Disable hipBLASLt markers.",
         "enable_tensile_marker": "Enable Tensile markers.",
@@ -381,6 +382,7 @@ def build(
     keep_build_tmp=False,
     experimental=False,
     logic_filter="",
+    streamk_ws_mode="",
     legacy_hipblas_direct=False,
     disable_marker=False,
     enable_tensile_marker=False,
@@ -443,6 +445,12 @@ def build(
 
     if gprof and not static:
         print("--gprof requires --static.")
+        sys.exit(2)
+
+    # Reject typos so an unintended value can't silently default to "off" and
+    # build the wrong (no-WS vs WS-only) device library.
+    if streamk_ws_mode and streamk_ws_mode.lower() not in ("off", "only"):
+        print("--streamk-ws-mode must be 'off' or 'only'")
         sys.exit(2)
 
     # PATH setup — use os.pathsep (';' on Windows, ':' on Linux)
@@ -519,6 +527,8 @@ def build(
         cmake_opts.append("-DTENSILELITE_ASM_DEBUG=ON")
     if logic_filter:
         cmake_opts.append(f"-DTENSILELITE_LOGIC_FILTER={logic_filter}")
+    if streamk_ws_mode:
+        cmake_opts.append(f"-DTENSILELITE_STREAMK_WS_MODE={streamk_ws_mode}")
     if keep_build_tmp:
         cmake_opts.append("-DTENSILELITE_KEEP_BUILD_TMP=ON")
     if no_compress:

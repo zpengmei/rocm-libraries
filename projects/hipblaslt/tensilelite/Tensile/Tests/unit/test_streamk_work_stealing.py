@@ -13,7 +13,10 @@ and the Solution-level validation are verified by executing the *real* source
 
 import ast
 import inspect
+import os
+import sys
 import textwrap
+from copy import deepcopy
 
 import pytest
 
@@ -34,6 +37,7 @@ from rocisa.instruction import (
     SStoreB32,
 )
 
+from Tensile.LibraryIO import parseLibraryLogicData
 from Tensile.Common.ValidParameters import validParameters
 from Tensile.Components.StreamK import (
     StreamK,
@@ -407,3 +411,293 @@ class TestSolutionValidation:
         # that would otherwise be rejected.
         state = self._run(streamk=3, atomic=1, work_stealing=0)
         assert "Valid" not in state
+
+
+# ===========================================================================
+# 5. parseLibraryLogicData WS codegen toggle: TENSILE_STREAMK_WS_MODE is now a
+#    BINARY choice (off / only) + the deprecated legacy alias
+#    TENSILE_GENERATE_STREAMK_WS_VARIANTS ("0" -> off, "1" -> only).
+#
+#    The flip happens inline in parseLibraryLogicData *before* the heavy
+#    Solution construction (which needs an assembler / isaInfoMap / GPU). To
+#    exercise the *real* mode-resolution + in-place flip source without that
+#    machinery, the relevant statements are AST-extracted into a standalone
+#    ``_apply(data)`` callable -- mirroring TestSolutionValidation above, so
+#    the assertions track the actual code rather than a copy of it.
+# ===========================================================================
+def _extract_ws_mode_applier():
+    """Compile the real WS-mode block out of ``parseLibraryLogicData`` into a
+    standalone ``_apply(data)`` so the mode-resolution + in-place flip logic can
+    run on a tiny synthetic ``data`` dict with no assembler or GPU.
+
+    The block runs from the first ``wsMode = ...`` assignment through the
+    ``if wsMode == "only":`` flip loop. The production code emits deprecation /
+    unknown-mode warnings via ``sys.stderr.write``, so ``sys`` (and ``os`` for
+    the env lookups) must be present in the exec namespace.
+    """
+    tree = ast.parse(textwrap.dedent(inspect.getsource(parseLibraryLogicData)))
+    funcdef = next(n for n in tree.body if isinstance(n, ast.FunctionDef))
+    body = funcdef.body
+
+    start = end = None
+    for i, stmt in enumerate(body):
+        if (
+            start is None
+            and isinstance(stmt, ast.Assign)
+            and any(isinstance(t, ast.Name) and t.id == "wsMode" for t in stmt.targets)
+        ):
+            start = i
+        # The binary dispatch: ``if wsMode == "only": ...`` (in-place flip).
+        if (
+            isinstance(stmt, ast.If)
+            and isinstance(stmt.test, ast.Compare)
+            and isinstance(stmt.test.left, ast.Name)
+            and stmt.test.left.id == "wsMode"
+            and len(stmt.test.ops) == 1
+            and isinstance(stmt.test.ops[0], ast.Eq)
+            and isinstance(stmt.test.comparators[0], ast.Constant)
+            and stmt.test.comparators[0].value == "only"
+        ):
+            end = i
+    assert start is not None, "could not find the wsMode env resolution"
+    assert end is not None and end >= start, "could not find the WS only block"
+
+    func = ast.FunctionDef(
+        name="_apply",
+        args=ast.arguments(
+            posonlyargs=[],
+            args=[ast.arg("data")],
+            vararg=None,
+            kwonlyargs=[],
+            kw_defaults=[],
+            kwarg=None,
+            defaults=[],
+        ),
+        body=body[start : end + 1],
+        decorator_list=[],
+        returns=None,
+        type_params=[],
+    )
+    mod = ast.Module(body=[func], type_ignores=[])
+    ast.fix_missing_locations(mod)
+    ns: dict = {"os": os, "sys": sys}
+    exec(compile(mod, "<ws-mode>", "exec"), ns)
+    return ns["_apply"]
+
+
+# Synthetic solution indices (kept as module constants for readable asserts).
+_SK5_ELIGIBLE = 0   # StreamK=5, atomic=0, WS=0  -> eligible
+_SK4_ELIGIBLE = 1   # StreamK=4, atomic=0, WS=0  -> eligible
+_NON_STREAMK = 2    # StreamK=0                  -> ineligible
+_ALREADY_WS = 3     # StreamK=5, WS=1            -> ineligible
+_ATOMIC = 4         # StreamK=4, atomic=1        -> ineligible
+_ELIGIBLE = (_SK5_ELIGIBLE, _SK4_ELIGIBLE)
+_INELIGIBLE = (_NON_STREAMK, _ALREADY_WS, _ATOMIC)
+
+
+def _mk_solutions():
+    return [
+        {"name": "sk5", "StreamK": 5, "StreamKAtomic": 0, "StreamKWorkStealing": 0},
+        {"name": "sk4", "StreamK": 4, "StreamKAtomic": 0, "StreamKWorkStealing": 0},
+        {"name": "gemm", "StreamK": 0, "StreamKAtomic": 0, "StreamKWorkStealing": 0},
+        {"name": "sk5ws", "StreamK": 5, "StreamKAtomic": 0, "StreamKWorkStealing": 1},
+        {"name": "sk4atomic", "StreamK": 4, "StreamKAtomic": 1, "StreamKWorkStealing": 0},
+    ]
+
+
+def _mk_matching_data():
+    """A "Matching" library-logic dict: table rows are [key, [solIdx, dist]]."""
+    sols = _mk_solutions()
+    return {
+        "LibraryType": "Matching",
+        "Solutions": sols,
+        "Library": {
+            "table": [
+                [[256, 256, 1, 256], [_SK5_ELIGIBLE, 1.0]],   # -> remapped
+                [[512, 512, 1, 512], [_SK4_ELIGIBLE, 2.0]],   # -> remapped
+                [[128, 128, 1, 128], [_NON_STREAMK, 3.0]],    # -> not remapped
+                [[64, 64, 1, 64], [_ATOMIC, 4.0]],            # -> not remapped
+            ]
+        },
+    }
+
+
+def _mk_freesize_data():
+    """A "FreeSize"-style dict where the table is the [0, len(Solutions)] form."""
+    sols = _mk_solutions()
+    return {
+        "LibraryType": "FreeSize",
+        "Solutions": sols,
+        "Library": {"table": [0, len(sols)]},
+    }
+
+
+class TestWorkStealingFlipMode:
+    """The binary off/only contract: ``off`` is a no-op; ``only`` flips eligible
+    SK4/SK5 solutions to WS=1 in place with no count growth and no table edits."""
+
+    def setup_method(self):
+        self.apply = _extract_ws_mode_applier()
+
+    # -- off -------------------------------------------------------------
+    def test_off_leaves_everything_untouched(self, monkeypatch):
+        monkeypatch.setenv("TENSILE_STREAMK_WS_MODE", "off")
+        monkeypatch.delenv("TENSILE_GENERATE_STREAMK_WS_VARIANTS", raising=False)
+        data = _mk_matching_data()
+        before = deepcopy(data)
+        self.apply(data)
+        # Count, every flag, and the table are all identical to before.
+        assert len(data["Solutions"]) == len(before["Solutions"])
+        assert all(s["StreamKWorkStealing"] == b["StreamKWorkStealing"]
+                   for s, b in zip(data["Solutions"], before["Solutions"]))
+        # No fresh WS=1 appears on a previously-WS=0 solution.
+        assert not any(s["StreamKWorkStealing"] == 1 for s in data["Solutions"][:3])
+        assert data["Library"]["table"] == before["Library"]["table"]
+
+    def test_off_is_case_insensitive(self, monkeypatch):
+        monkeypatch.setenv("TENSILE_STREAMK_WS_MODE", "OfF")
+        monkeypatch.delenv("TENSILE_GENERATE_STREAMK_WS_VARIANTS", raising=False)
+        data = _mk_matching_data()
+        before = deepcopy(data)
+        self.apply(data)
+        assert data["Solutions"] == before["Solutions"]
+        assert data["Library"]["table"] == before["Library"]["table"]
+
+    # -- only ------------------------------------------------------------
+    def test_only_flips_eligible_in_place_no_growth_no_table_change(self, monkeypatch):
+        monkeypatch.setenv("TENSILE_STREAMK_WS_MODE", "only")
+        data = _mk_matching_data()
+        orig_n = len(data["Solutions"])
+        table_before = deepcopy(data["Library"]["table"])
+        self.apply(data)
+
+        # No duplicates appended.
+        assert len(data["Solutions"]) == orig_n
+        # Eligible solutions (SK4/SK5, atomic=0, WS=0) flipped to WS=1 in place.
+        for idx in _ELIGIBLE:
+            assert data["Solutions"][idx]["StreamKWorkStealing"] == 1
+        # Ineligible untouched: non-StreamK, already-WS, and atomic.
+        assert data["Solutions"][_NON_STREAMK]["StreamKWorkStealing"] == 0
+        assert data["Solutions"][_ALREADY_WS]["StreamKWorkStealing"] == 1
+        assert data["Solutions"][_ATOMIC]["StreamKWorkStealing"] == 0
+        # Table unchanged.
+        assert data["Library"]["table"] == table_before
+
+    def test_only_is_case_insensitive(self, monkeypatch):
+        monkeypatch.setenv("TENSILE_STREAMK_WS_MODE", "OnLy")
+        monkeypatch.delenv("TENSILE_GENERATE_STREAMK_WS_VARIANTS", raising=False)
+        data = _mk_matching_data()
+        self.apply(data)
+        for idx in _ELIGIBLE:
+            assert data["Solutions"][idx]["StreamKWorkStealing"] == 1
+
+    def test_only_leaves_freesize_table_unchanged(self, monkeypatch):
+        # The simplified contract never touches the Library/table, regardless of
+        # library type -- including the [0, len] FreeSize/Prediction form.
+        monkeypatch.setenv("TENSILE_STREAMK_WS_MODE", "only")
+        data = _mk_freesize_data()
+        orig_n = len(data["Solutions"])
+        table_before = deepcopy(data["Library"]["table"])
+        self.apply(data)
+        assert len(data["Solutions"]) == orig_n
+        assert data["Library"]["table"] == table_before
+        for idx in _ELIGIBLE:
+            assert data["Solutions"][idx]["StreamKWorkStealing"] == 1
+
+    def test_only_with_no_eligible_solutions_is_a_noop(self, monkeypatch):
+        monkeypatch.setenv("TENSILE_STREAMK_WS_MODE", "only")
+        data = {
+            "LibraryType": "Matching",
+            "Solutions": [
+                {"name": "gemm", "StreamK": 0, "StreamKAtomic": 0, "StreamKWorkStealing": 0},
+                {"name": "sk4atomic", "StreamK": 4, "StreamKAtomic": 1, "StreamKWorkStealing": 0},
+            ],
+            "Library": {"table": [[[1, 1, 1, 1], [0, 1.0]]]},
+        }
+        before = deepcopy(data)
+        self.apply(data)
+        assert data == before
+
+
+class TestWorkStealingModeResolution:
+    """Env-var precedence + back-compat + unknown-value fallback (binary)."""
+
+    def setup_method(self):
+        self.apply = _extract_ws_mode_applier()
+
+    def _flipped_eligible(self, data):
+        """True iff every eligible solution ended up flipped to WS=1 and no
+        solution count growth occurred."""
+        return all(data["Solutions"][idx]["StreamKWorkStealing"] == 1
+                   for idx in _ELIGIBLE)
+
+    def _no_new_flips(self, data):
+        """True iff no previously-WS=0 solution was flipped to WS=1."""
+        return not any(s["StreamKWorkStealing"] == 1 for s in data["Solutions"][:3])
+
+    def test_default_neither_set_is_off(self, monkeypatch):
+        monkeypatch.delenv("TENSILE_STREAMK_WS_MODE", raising=False)
+        monkeypatch.delenv("TENSILE_GENERATE_STREAMK_WS_VARIANTS", raising=False)
+        data = _mk_matching_data()
+        before = deepcopy(data)
+        self.apply(data)
+        assert len(data["Solutions"]) == len(before["Solutions"])
+        assert self._no_new_flips(data)
+        assert data["Library"]["table"] == before["Library"]["table"]
+
+    def test_empty_string_is_off(self, monkeypatch):
+        monkeypatch.setenv("TENSILE_STREAMK_WS_MODE", "")
+        monkeypatch.delenv("TENSILE_GENERATE_STREAMK_WS_VARIANTS", raising=False)
+        data = _mk_matching_data()
+        n = len(data["Solutions"])
+        self.apply(data)
+        assert len(data["Solutions"]) == n
+        assert self._no_new_flips(data)
+
+    def test_legacy_zero_behaves_like_off(self, monkeypatch):
+        monkeypatch.delenv("TENSILE_STREAMK_WS_MODE", raising=False)
+        monkeypatch.setenv("TENSILE_GENERATE_STREAMK_WS_VARIANTS", "0")
+        data = _mk_matching_data()
+        n = len(data["Solutions"])
+        self.apply(data)
+        assert len(data["Solutions"]) == n
+        assert self._no_new_flips(data)
+
+    def test_legacy_one_behaves_like_only(self, monkeypatch):
+        monkeypatch.delenv("TENSILE_STREAMK_WS_MODE", raising=False)
+        monkeypatch.setenv("TENSILE_GENERATE_STREAMK_WS_VARIANTS", "1")
+        data = _mk_matching_data()
+        n = len(data["Solutions"])
+        self.apply(data)
+        # only: flip in place, no growth.
+        assert len(data["Solutions"]) == n
+        assert self._flipped_eligible(data)
+
+    def test_new_var_overrides_legacy_off_beats_one(self, monkeypatch):
+        # New var says off, legacy says only -> new var wins (off).
+        monkeypatch.setenv("TENSILE_STREAMK_WS_MODE", "off")
+        monkeypatch.setenv("TENSILE_GENERATE_STREAMK_WS_VARIANTS", "1")
+        data = _mk_matching_data()
+        n = len(data["Solutions"])
+        self.apply(data)
+        assert len(data["Solutions"]) == n
+        assert self._no_new_flips(data)
+
+    def test_new_var_overrides_legacy_only_beats_zero(self, monkeypatch):
+        # New var says only, legacy says off -> new var wins (only: flip in place).
+        monkeypatch.setenv("TENSILE_STREAMK_WS_MODE", "only")
+        monkeypatch.setenv("TENSILE_GENERATE_STREAMK_WS_VARIANTS", "0")
+        data = _mk_matching_data()
+        n = len(data["Solutions"])
+        self.apply(data)
+        assert len(data["Solutions"]) == n
+        assert self._flipped_eligible(data)
+
+    def test_unknown_mode_falls_back_to_off(self, monkeypatch):
+        monkeypatch.setenv("TENSILE_STREAMK_WS_MODE", "bogus")
+        monkeypatch.delenv("TENSILE_GENERATE_STREAMK_WS_VARIANTS", raising=False)
+        data = _mk_matching_data()
+        n = len(data["Solutions"])
+        self.apply(data)
+        assert len(data["Solutions"]) == n
+        assert self._no_new_flips(data)
