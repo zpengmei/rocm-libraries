@@ -4660,8 +4660,25 @@ class Solution(collections.abc.Mapping):
       # PGR==2 only (PGR>=3 already allocates PGR LDS blocks)
       if state["PrefetchGlobalRead"] != 2:
         state["PlusLdsBuf"] = 0
-      # SIA==3 only
-      if state["_ScheduleIterAlg"] != 3:
+      # SIA 0/4 only (NOT subtile/SIA3). SIA4 is remapped to _ScheduleIterAlg==0
+      # above, so this single check covers both SIA0 and SIA4 while excluding
+      # SIA3 (subtile), which uses a different scheduler/barrier model that the
+      # tdmSwapLdsOffset rotation + 3-state token logic does not cover.
+      if state["_ScheduleIterAlg"] != 0:
+        state["PlusLdsBuf"] = 0
+      # TDM (datamover) A+B only. PlusLdsBuf is the non-DirectToLds analogue of
+      # DtlPlusLdsBuf; only the TDM enableTDMA+enableTDMB path has 3-LDS-buffer
+      # correct codegen (tdmSwapLdsOffset modulo-N rotation + 3-state memory
+      # tokens). A generic (VGPR local-write) PGR2 kernel would hit the
+      # IncLdsBufSwitch local-write path that assumes DTL/SGPR addresses, so do
+      # not enable PlusLdsBuf there.
+      if not (state["enableTDMA"] and state["enableTDMB"]):
+        state["PlusLdsBuf"] = 0
+      # StreamK tail-loop LDS-bank handling (PAP is transitively excluded since
+      # TDM+PAP forces StreamK) and TDMSplit per-load address increments are
+      # still binary (2-buffer) only; the 3-buffer rotation does not yet cover
+      # them. Leave those combinations as future work.
+      if state.get("StreamK", 0) or state.get("TDMSplit", 0):
         state["PlusLdsBuf"] = 0
       # restrict feature combinations
       if state["PlusLdsBuf"]:
@@ -4773,6 +4790,8 @@ class Solution(collections.abc.Mapping):
     else:
       ldsNumBytesAB = state["LdsOffsetB"] + ldsNumBytesB
     state["NumLdsBlk"] = numLdsBlk
+    print(f"numLdsBlk: {numLdsBlk}")
+    print(f"PlusLdsBuf: {state["PlusLdsBuf"]}")
 
     # lds buffer size for reduction
     # if User want to control the LDS usage, we may open this para in the future

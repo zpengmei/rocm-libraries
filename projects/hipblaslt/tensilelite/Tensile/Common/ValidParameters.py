@@ -318,14 +318,15 @@ validParameters = { # we need to make sure this matches develop
     "DtlPlusLdsBuf": [-1,0,1],
     # Force allocating PGR+1 (i.e. 3) LDS buffers when PrefetchGlobalRead==2,
     # if we have enough LDS memory size. Same idea as DtlPlusLdsBuf but it does
-    # NOT require DirectToLdsA+B, so it can be used on the general (e.g. gfx1250)
-    # PGR2 path. The extra LDS block lets the next-iteration global reads be
+    # NOT require DirectToLdsA+B; it targets the TDM (datamover) PGR2 path
+    # (e.g. gfx1250). The extra LDS block lets the next-iteration global reads be
     # scheduled over the barrier without colliding with the buffer currently
     # being read.
     # -1: auto (currently disabled; reserved for future heuristics)
     #  0: disable
     #  1: enable (forced; set to 0 if not applicable)
-    # Only applies for PrefetchGlobalRead==2 and ScheduleIterAlg==3.
+    # Only applies for PrefetchGlobalRead==2, ScheduleIterAlg 0 or 4 (NOT
+    # subtile/SIA3), and TDM enableTDMA+enableTDMB; disabled under StreamK/TDMSplit.
     # If the resulting LDS usage exceeds MaxLDS, fall back to 2 LDS buffers.
     # 1LDSBuffer will be 0 if PlusLdsBuf is enabled.
     "PlusLdsBuf": [-1,0,1],

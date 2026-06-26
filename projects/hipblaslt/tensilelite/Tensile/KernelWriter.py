@@ -379,6 +379,10 @@ class StateValues:
   scheduleGROverBarrier: bool            = False
   numLDSBlk: int                         = 0
   IncLdsBufSwitch: bool                  = False
+  # When True, LDS memory tokens rotate 0->1->2->0 (mod numLDSBlk) instead of the
+  # binary 0<->1 toggle. Only set for the non-DTL TDM PlusLdsBuf 3-buffer path so
+  # DTL / PGR>=3 keep their original (binary) token stream byte-for-byte.
+  tdmPlusLdsBufRotate: bool              = False
   oneBufferScheduling: bool              = False
   doPackPreSchedulingThisLoop: bool      = False
   doPackPreSchedulingNextLoop: bool      = False
@@ -3076,7 +3080,7 @@ class KernelWriter(metaclass=abc.ABCMeta):
         module.add(self.globalReadIncrementAB(kernel, tPA, tPB, self.states.unrollIdx, pfi))
         # swap Tensor memToken
         self.states.ldsTensorTokenIdx = \
-            self.states.memTokenLdsBuffer1 if self.states.ldsTensorTokenIdx == self.states.memTokenLdsBuffer0 else self.states.memTokenLdsBuffer0
+            self._nextLdsToken(self.states.ldsTensorTokenIdx)
 
     module.addComment2("End setupNewTile")
 
@@ -3313,7 +3317,7 @@ class KernelWriter(metaclass=abc.ABCMeta):
         and not (kernel["enableTDMA"] and kernel["enableTDMB"])):
       module.add(self.papDtlSaveLdsBank(kernel, tensorParametersA, tensorParametersB))
     self.states.ldsTensorTokenIdx = \
-        self.states.memTokenLdsBuffer1 if self.states.ldsTensorTokenIdx == self.states.memTokenLdsBuffer0 else self.states.memTokenLdsBuffer0
+        self._nextLdsToken(self.states.ldsTensorTokenIdx)
 
     module.addComment2("End setupPrefetchAcrossPersistentLoads")
     return module
@@ -3643,7 +3647,7 @@ class KernelWriter(metaclass=abc.ABCMeta):
       doReadM = doReadM and (kernel["ProblemType"]["Sparse"] and not kernel["DirectToVgprSparseMetadata"])
       if ((hasLiveLdsData and doNext) or (self.states.numItersPLR == 0 and uIdx == 0)) and not self.states.lockLdsReadTokenSwap:
         # swap LR buffer token only when the LR buffer actually changes
-        self.states.ldsReadTokenIdx = self.states.memTokenLdsBuffer1 if self.states.ldsReadTokenIdx == self.states.memTokenLdsBuffer0 else self.states.memTokenLdsBuffer0
+        self.states.ldsReadTokenIdx = self._nextLdsToken(self.states.ldsReadTokenIdx)
       if isOptNLL and not self.states.lockLdsReadTokenSwap:
         # After entering OptNLL body, keep the read token fixed.
         self.states.lockLdsReadTokenSwap = True
@@ -3815,7 +3819,7 @@ class KernelWriter(metaclass=abc.ABCMeta):
                 pointerLWCode.add(self.tdmSwapLdsOffset(kernel, tPM))
             # Swap local write memory token
             self.states.ldsWriteTokenIdx = \
-              self.states.memTokenLdsBuffer1 if self.states.ldsWriteTokenIdx == self.states.memTokenLdsBuffer0 else self.states.memTokenLdsBuffer0
+              self._nextLdsToken(self.states.ldsWriteTokenIdx)
 
           if isSwapLroIter: # ResetLroIter
             # Swap, reset, or increment the LRO:
@@ -4126,7 +4130,7 @@ class KernelWriter(metaclass=abc.ABCMeta):
     if kernel["PrefetchGlobalRead"] > 1:
       # swap Tensor memToken before doing global read
       self.states.ldsTensorTokenIdx = \
-          self.states.memTokenLdsBuffer1 if self.states.ldsTensorTokenIdx == self.states.memTokenLdsBuffer0 else self.states.memTokenLdsBuffer0
+          self._nextLdsToken(self.states.ldsTensorTokenIdx)
 
     g2lBufIdx1st = 0
     if grBA==True or (kernel["DirectToVgpr%s"%tc1] and isDTVGRSecondBuf):
@@ -4165,7 +4169,7 @@ class KernelWriter(metaclass=abc.ABCMeta):
     if kernel["PrefetchGlobalRead"] <= 1:
       # swap Tensor memToken after doing global read
       self.states.ldsTensorTokenIdx = \
-          self.states.memTokenLdsBuffer1 if self.states.ldsTensorTokenIdx == self.states.memTokenLdsBuffer0 else self.states.memTokenLdsBuffer0
+          self._nextLdsToken(self.states.ldsTensorTokenIdx)
 
     # unrolled loop: increment global read addresses
     self.codes.globalReadIncrements = self.globalReadIncrementAB(kernel, tensorParametersA, tensorParametersB, self.states.unrollIdx, 0)
@@ -4466,7 +4470,7 @@ class KernelWriter(metaclass=abc.ABCMeta):
       # Prefetch reads for next loop target LDS1; current iteration reads target LDS0
       if hasLiveLdsData and doNext and not self.states.lockLdsReadTokenSwap:
         # swap LR buffer
-        self.states.ldsReadTokenIdx = self.states.memTokenLdsBuffer1 if self.states.ldsReadTokenIdx == self.states.memTokenLdsBuffer0 else self.states.memTokenLdsBuffer0
+        self.states.ldsReadTokenIdx = self._nextLdsToken(self.states.ldsReadTokenIdx)
       if kernel["HalfPLR"]:
         self.states.halfPLRGroups = self.getHalfPLRGroups(kernel, lc, (u+pflr))
       for iui in range(0,kernel["InnerUnroll"]):
@@ -4714,7 +4718,7 @@ class KernelWriter(metaclass=abc.ABCMeta):
               pointerLWCode.add(self.tdmSwapLdsOffset(kernel, tPM))
           # Swap local write memory token
           self.states.ldsWriteTokenIdx = \
-            self.states.memTokenLdsBuffer1 if self.states.ldsWriteTokenIdx == self.states.memTokenLdsBuffer0 else self.states.memTokenLdsBuffer0
+            self._nextLdsToken(self.states.ldsWriteTokenIdx)
 
         if isSwapLroIter: # ResetLroIter
           if kernel["ExpertSchedulingMode"] > 0:
@@ -5390,7 +5394,7 @@ class KernelWriter(metaclass=abc.ABCMeta):
           module.add(self.tdmSwapLdsOffset(kernel, tPM))
       # swap local write memory token
       self.states.ldsWriteTokenIdx = \
-          self.states.memTokenLdsBuffer1 if self.states.ldsWriteTokenIdx == self.states.memTokenLdsBuffer0 else self.states.memTokenLdsBuffer0
+          self._nextLdsToken(self.states.ldsWriteTokenIdx)
 
       # prefetch global read for PGR>=2
       if kernel["PrefetchGlobalRead"] >= 2:
@@ -5456,7 +5460,7 @@ class KernelWriter(metaclass=abc.ABCMeta):
             module.add(self.globalReadIncrementAB(kernel, tensorParametersA, tensorParametersB, self.states.unrollIdx, prefetchIdx))
             # swap Tensor memToken
             self.states.ldsTensorTokenIdx = \
-                self.states.memTokenLdsBuffer1 if self.states.ldsTensorTokenIdx == self.states.memTokenLdsBuffer0 else self.states.memTokenLdsBuffer0
+                self._nextLdsToken(self.states.ldsTensorTokenIdx)
 
           # swap local ptrs again if DirectToLds is enabled
           skipMetaSwap = kernel["ProblemType"]["Sparse"] and not kernel["DirectToLdsMetadata"]
@@ -5474,7 +5478,7 @@ class KernelWriter(metaclass=abc.ABCMeta):
             module.add(self.localWriteSwapOffsets(kernel, expand, tensorParametersB, prefetch=True, skipMetaSwap=skipMetaSwap))
           # swap ldsDirectToLDSTokenIdx
           self.states.ldsDirectToLDSTokenIdx = \
-            self.states.memTokenLdsBuffer1 if self.states.ldsDirectToLDSTokenIdx == self.states.memTokenLdsBuffer0 else self.states.memTokenLdsBuffer0
+            self._nextLdsToken(self.states.ldsDirectToLDSTokenIdx)
 
         # generate exit code
         for idxPgr in range(0, kernel["PrefetchGlobalRead"] + 1):
@@ -5708,7 +5712,7 @@ class KernelWriter(metaclass=abc.ABCMeta):
           loop.add(self._loopBody( kernel, tensorParametersA, tensorParametersB, pack, packPre, lc, loopCopies, finalLoop, isDTVGRSecondBuf=isDTVGRSecondBuf, nta=nta, ntb=ntb ))
           if self.states.numItersPLR == 0 and not finalLoop:
             # swap LDS read buffer
-            self.states.ldsReadTokenIdx = self.states.memTokenLdsBuffer1 if self.states.ldsReadTokenIdx == self.states.memTokenLdsBuffer0 else self.states.memTokenLdsBuffer0
+            self.states.ldsReadTokenIdx = self._nextLdsToken(self.states.ldsReadTokenIdx)
 
       module.add(loop)
 
@@ -5825,7 +5829,7 @@ class KernelWriter(metaclass=abc.ABCMeta):
         module.add(self.localWriteSwapOffsets(kernel, expand, tensorParametersB))
       # swap ldsDirectToLDSTokenIdx
       self.states.ldsDirectToLDSTokenIdx = \
-          self.states.memTokenLdsBuffer1 if self.states.ldsDirectToLDSTokenIdx == self.states.memTokenLdsBuffer0 else self.states.memTokenLdsBuffer0
+          self._nextLdsToken(self.states.ldsDirectToLDSTokenIdx)
 
     for remainPgr in range(kernel["PrefetchGlobalRead"]-1, 0, -1) if not kernel["SuppressNoLoadLoop"] else []:
       # NGLL code generation for PGR>=2
@@ -6463,7 +6467,7 @@ class KernelWriter(metaclass=abc.ABCMeta):
       module.add(self.globalReadIncrementAB(kernel, tensorParametersA, tensorParametersB, i, 0))
       # swap Tensor memToken
       self.states.ldsTensorTokenIdx = \
-          self.states.memTokenLdsBuffer1 if self.states.ldsTensorTokenIdx == self.states.memTokenLdsBuffer0 else self.states.memTokenLdsBuffer0
+          self._nextLdsToken(self.states.ldsTensorTokenIdx)
       module.add(self.closeLoop(kernel, tensorParametersA, tensorParametersB, i, True))
 
     module.add(self.endSummation(kernel, tensorParametersA, tensorParametersB))
@@ -7150,6 +7154,15 @@ class KernelWriter(metaclass=abc.ABCMeta):
     self.states.ldsDirectToLDSTokenIdx = self.states.memTokenLdsBuffer0
     self.states.ldsWriteTokenIdx = self.states.memTokenLdsBuffer0
     self.states.lockLdsReadTokenSwap = False
+    # 3-buffer TDM (PlusLdsBuf) needs the memory tokens to follow the physical
+    # LDS buffer (0->1->2->0) so the auto barrier pass neither misses a
+    # write/read hazard nor over-syncs the prefetch the 3rd buffer is meant to
+    # hide. All other paths (2 buffers, DTL, PGR>=3) keep the binary toggle.
+    self.states.tdmPlusLdsBufRotate = bool(
+        self.states.IncLdsBufSwitch
+        and kernel["enableTDMA"] and kernel["enableTDMB"]
+        and kernel.get("PlusLdsBuf", 0)
+        and kernel["PrefetchGlobalRead"] == 2)
 
     # NamedTuple is immutable
     class intermediateTPValues(NamedTuple):
@@ -10773,6 +10786,21 @@ class KernelWriter(metaclass=abc.ABCMeta):
   @abc.abstractmethod
   def gl2PrefetchIncrementAddr(self, kernel, tPA, tPB) -> Module:
     return ""
+
+  def _nextLdsToken(self, idx: int) -> int:
+    """Advance an LDS memory-token index to the next physical buffer.
+
+    For the 3-buffer non-DTL TDM PlusLdsBuf path (``tdmPlusLdsBufRotate``) the
+    tokens rotate 0->1->2->0 (mod ``numLDSBlk``) so each token names exactly one
+    physical LDS buffer and stays in lockstep with the modulo-N address rotation
+    in ``tdmSwapLdsOffset`` / ``localReadSwapOffsets``. Every other configuration
+    (2 buffers, DTL, PGR>=3) keeps the original binary 0<->1 toggle so its token
+    stream is byte-for-byte unchanged.
+    """
+    if self.states.tdmPlusLdsBufRotate:
+      return (idx + 1) % self.states.numLDSBlk
+    return self.states.memTokenLdsBuffer1 if idx == self.states.memTokenLdsBuffer0 \
+      else self.states.memTokenLdsBuffer0
 
   def resetLdsTokensForTailLoop(self) -> None:
     """Point all LDS-related memory tokens at buffer 0 before tail-loop codegen.
