@@ -87,8 +87,6 @@ struct unique_benchmark : public primbench::benchmark_interface
 
     const size_t unique_elements = thrust::distance(out_keys.begin(), new_key_end);
 
-    thrust::device_vector<T> out(m_items);
-
     state.set_items(m_items);
     state.add_reads<T>(m_items);
     state.add_writes<K>(m_items);
