@@ -875,6 +875,10 @@ class _Lowerer:
         self._needs_fp_atomic_md: bool = False
         self._smem_globals: List[Tuple[str, SmemType]] = []
         self._smem_storage_name: Dict[str, str] = {}  # IR value name -> @global name
+        # smem pool: one unified addrspace(3) buffer; per-allocation byte offsets.
+        self._smem_offsets: Dict[str, int] = {}
+        self._smem_pool_size: int = 0
+        self._smem_pool_name: Optional[str] = None
         self._blocks: List[_Block] = [_Block("entry")]
         self._block_counter = 0
         self._tmp_counter = 0
@@ -962,6 +966,58 @@ class _Lowerer:
                 self._smem_storage_name[op.result.name] = gname
             for r in op.regions:
                 self._collect_smem(r)
+
+    def _compute_smem_layout(self) -> None:
+        """Compute byte offsets for all smem allocations in a single pool.
+
+        Called after ``_collect_smem`` and before ``lower_region``. Each
+        allocation is packed sequentially with its natural alignment (4 bytes
+        for f16/bf16/f32/i32, 16 bytes for i8/fp8). The pool itself is
+        aligned to 16 bytes. The computed offsets are used by
+        ``_emit_smem_base_ptr`` to generate a byte-offset GEP into the single
+        ``@smem_pool.<kernel>`` global instead of per-allocation globals.
+        """
+        _elem_bytes = {
+            "i8": 1,
+            "fp8e4m3": 1,
+            "bf8e5m2": 1,
+            "f16": 2,
+            "bf16": 2,
+            "i32": 4,
+            "f32": 4,
+            "i64": 8,
+        }
+        offset = 0
+        pool_name = f"@smem_pool.{self.kernel.name}"
+        for gname, stype in self._smem_globals:
+            elem_is_byte = stype.elem.name in ("i8", "fp8e4m3", "bf8e5m2")
+            align = 16 if elem_is_byte else 4
+            offset = (offset + align - 1) & ~(align - 1)
+            self._smem_offsets[gname] = offset
+            eb = _elem_bytes.get(stype.elem.name, 2)
+            seg = eb
+            for d in stype.shape:
+                seg *= d
+            offset += seg
+        self._smem_pool_size = (offset + 15) & ~15
+        self._smem_pool_name = pool_name
+
+    def _emit_smem_base_ptr(self, gname: str, stype: SmemType) -> str:
+        """Return an addrspace(3) pointer to the start of the smem segment.
+
+        When the segment sits at offset 0 in the pool, returns the pool name
+        directly (no extra GEP instruction). Otherwise emits one byte-level
+        GEP and returns the fresh SSA name.
+        """
+        offset = self._smem_offsets[gname]
+        if offset == 0:
+            return self._smem_pool_name
+        base = self._fresh("smem_base")
+        self._current().emit(
+            f"  {base} = getelementptr inbounds i8, ptr addrspace(3) "
+            f"{self._smem_pool_name}, i32 {offset}"
+        )
+        return base
 
     # ----- per-op lowerings -----
 
@@ -1864,11 +1920,12 @@ class _Lowerer:
         indices = op.operands[1:-1]
         value = op.operands[-1]
         gname, stype = self._smem_global_name(smem)
+        base_ptr = self._emit_smem_base_ptr(gname, stype)
         gep = self._fresh("gep")
         gidx = ["i32 0"] + [f"i32 {self._operand(i)}" for i in indices]
         agg_ty = _smem_storage_type(stype)
         self._current().emit(
-            f"  {gep} = getelementptr inbounds {agg_ty}, ptr addrspace(3) {gname}, "
+            f"  {gep} = getelementptr inbounds {agg_ty}, ptr addrspace(3) {base_ptr}, "
             f"{', '.join(gidx)}"
         )
         # Alignment is the element byte size: 1 for i8, 2 for f16/bf16,
@@ -1902,11 +1959,12 @@ class _Lowerer:
         val = op.operands[-1]
         elem_ty = _llvm_type(val.type)
         gname, stype = self._smem_global_name(smem)
+        base_ptr = self._emit_smem_base_ptr(gname, stype)
         agg_ty = _smem_storage_type(stype)
         gep = self._fresh("gep")
         gidx = ["i32 0"] + [f"i32 {self._operand(i)}" for i in indices]
         self._current().emit(
-            f"  {gep} = getelementptr inbounds {agg_ty}, ptr addrspace(3) {gname}, "
+            f"  {gep} = getelementptr inbounds {agg_ty}, ptr addrspace(3) {base_ptr}, "
             f"{', '.join(gidx)}"
         )
         ordering = op.attrs.get("ordering", "monotonic")
@@ -1928,11 +1986,12 @@ class _Lowerer:
         value = op.operands[-1]
         vec = int(op.attrs["vec"])
         gname, stype = self._smem_global_name(smem)
+        base_ptr = self._emit_smem_base_ptr(gname, stype)
         agg_ty = _smem_storage_type(stype)
         gep = self._fresh("gep")
         gidx = ["i32 0"] + [f"i32 {self._operand(i)}" for i in indices]
         self._current().emit(
-            f"  {gep} = getelementptr inbounds {agg_ty}, ptr addrspace(3) {gname}, "
+            f"  {gep} = getelementptr inbounds {agg_ty}, ptr addrspace(3) {base_ptr}, "
             f"{', '.join(gidx)}"
         )
         elem_ty = _llvm_type(value.type.elem)  # type: ignore[attr-defined]
@@ -1957,10 +2016,11 @@ class _Lowerer:
     def _op_tile_smem_load_v4(self, op: Op) -> None:
         smem, row, col = op.operands
         gname, stype = self._smem_global_name(smem)
+        base_ptr = self._emit_smem_base_ptr(gname, stype)
         agg_ty = _smem_storage_type(stype)
         base = self._fresh("smem.base")
         self._current().emit(
-            f"  {base} = getelementptr inbounds {agg_ty}, ptr addrspace(3) {gname}, "
+            f"  {base} = getelementptr inbounds {agg_ty}, ptr addrspace(3) {base_ptr}, "
             f"i32 0, i32 {self._operand(row)}, i32 {self._operand(col)}"
         )
         # 4 contiguous fp16 loads + insertelement chain. We do separate
@@ -1996,11 +2056,12 @@ class _Lowerer:
         indices = list(op.operands[1:])
         vec = int(op.attrs["vec"])
         gname, stype = self._smem_global_name(smem)
+        base_ptr = self._emit_smem_base_ptr(gname, stype)
         agg_ty = _smem_storage_type(stype)
         base = self._fresh("smem.base")
         idx_strs = ["i32 0"] + [f"i32 {self._operand(i)}" for i in indices]
         self._current().emit(
-            f"  {base} = getelementptr inbounds {agg_ty}, ptr addrspace(3) {gname}, "
+            f"  {base} = getelementptr inbounds {agg_ty}, ptr addrspace(3) {base_ptr}, "
             f"{', '.join(idx_strs)}"
         )
         elem_ty = _llvm_type(op.result.type.elem)  # type: ignore[attr-defined]
@@ -2403,6 +2464,7 @@ class _Lowerer:
         values = op.operands[1]
         n = values.type.count if isinstance(values.type, VectorType) else 1
         gname, stype = self._smem_global_name(smem)
+        base_ptr = self._emit_smem_base_ptr(gname, stype)
         agg_ty = _smem_storage_type(stype)
         elem_ty = (
             _llvm_type(values.type.elem)
@@ -2418,7 +2480,7 @@ class _Lowerer:
             )
             self._current().emit(
                 f"  {gep} = getelementptr inbounds {agg_ty}, "
-                f"ptr addrspace(3) {gname}, i32 0, i32 {i}"
+                f"ptr addrspace(3) {base_ptr}, i32 0, i32 {i}"
             )
             self._current().emit(
                 f"  store {elem_ty} {ev}, ptr addrspace(3) {gep}, align 2"
@@ -2784,11 +2846,12 @@ class _Lowerer:
         smem = op.operands[0]
         indices = list(op.operands[1:])
         gname, stype = self._smem_global_name(smem)
+        base_ptr = self._emit_smem_base_ptr(gname, stype)
         agg_ty = _smem_storage_type(stype)
         base = self._fresh("tr.base")
         idx_strs = ["i32 0"] + [f"i32 {self._operand(i)}" for i in indices]
         self._current().emit(
-            f"  {base} = getelementptr inbounds {agg_ty}, ptr addrspace(3) {gname}, "
+            f"  {base} = getelementptr inbounds {agg_ty}, ptr addrspace(3) {base_ptr}, "
             f"{', '.join(idx_strs)}"
         )
         self._need("ds.read.tr16.b64")
@@ -2813,11 +2876,12 @@ class _Lowerer:
         smem = op.operands[0]
         indices = list(op.operands[1:])
         gname, stype = self._smem_global_name(smem)
+        base_ptr = self._emit_smem_base_ptr(gname, stype)
         agg_ty = _smem_storage_type(stype)
         base = self._fresh("trw.base")
         idx_strs = ["i32 0"] + [f"i32 {self._operand(i)}" for i in indices]
         self._current().emit(
-            f"  {base} = getelementptr inbounds {agg_ty}, ptr addrspace(3) {gname}, "
+            f"  {base} = getelementptr inbounds {agg_ty}, ptr addrspace(3) {base_ptr}, "
             f"{', '.join(idx_strs)}"
         )
         elem_name = op.attrs.get("elem_type", "f16")
@@ -2907,11 +2971,12 @@ class _Lowerer:
         smem = op.operands[0]
         indices = list(op.operands[1:])
         gname, stype = self._smem_global_name(smem)
+        base_ptr = self._emit_smem_base_ptr(gname, stype)
         agg_ty = _smem_storage_type(stype)
         base = self._fresh("tr8.base")
         idx_strs = ["i32 0"] + [f"i32 {self._operand(i)}" for i in indices]
         self._current().emit(
-            f"  {base} = getelementptr inbounds {agg_ty}, ptr addrspace(3) {gname}, "
+            f"  {base} = getelementptr inbounds {agg_ty}, ptr addrspace(3) {base_ptr}, "
             f"{', '.join(idx_strs)}"
         )
         addr = self._fresh("tr8.addr")
@@ -2983,9 +3048,11 @@ class _Lowerer:
     def _op_tile_smem_addr_of(self, op: Op) -> None:
         (smem,) = op.operands
         gname = self._smem_storage_name[smem.name]
+        stype = smem.type
+        base_ptr = self._emit_smem_base_ptr(gname, stype)
         # The global is ptr addrspace(3); cast to i64 for arithmetic.
         self._current().emit(
-            f"  {op.result.name} = ptrtoint ptr addrspace(3) {gname} to i64"
+            f"  {op.result.name} = ptrtoint ptr addrspace(3) {base_ptr} to i64"
         )
 
     def _op_tile_smem_ptr_add(self, op: Op) -> None:
@@ -3062,11 +3129,12 @@ class _Lowerer:
         )
         # Per-lane LDS destination address (typed aggregate GEP).
         gname, stype = self._smem_global_name(lds_smem)
+        base_ptr = self._emit_smem_base_ptr(gname, stype)
         agg_ty = _smem_storage_type(stype)
         gidx = ["i32 0"] + [f"i32 {self._operand(i)}" for i in lds_indices]
         gep_l = self._fresh("async_dst")
         self._current().emit(
-            f"  {gep_l} = getelementptr inbounds {agg_ty}, ptr addrspace(3) {gname}, "
+            f"  {gep_l} = getelementptr inbounds {agg_ty}, ptr addrspace(3) {base_ptr}, "
             f"{', '.join(gidx)}"
         )
         self._need(f"global.load.async.to.lds.{suffix}")
@@ -3513,9 +3581,7 @@ class _Lowerer:
             self._current().emit(
                 f"  {scalar} = extractelement <1 x float> {self._operand(val)}, i32 0"
             )
-            self._current().emit(
-                f"  {bc} = bitcast float {scalar} to i32"
-            )
+            self._current().emit(f"  {bc} = bitcast float {scalar} to i32")
             self._current().emit(
                 f"  call void @llvm.amdgcn.raw.ptr.buffer.store.i32("
                 f"i32 {bc}, "
@@ -3591,11 +3657,12 @@ class _Lowerer:
         value = op.operands[-1]
         vec = int(op.attrs["vec"])
         gname, stype = self._smem_global_name(smem)
+        base_ptr = self._emit_smem_base_ptr(gname, stype)
         agg_ty = _smem_storage_type(stype)
         gep = self._fresh("gep")
         gidx = ["i32 0"] + [f"i32 {self._operand(i)}" for i in indices]
         self._current().emit(
-            f"  {gep} = getelementptr inbounds {agg_ty}, ptr addrspace(3) {gname}, "
+            f"  {gep} = getelementptr inbounds {agg_ty}, ptr addrspace(3) {base_ptr}, "
             f"{', '.join(gidx)}"
         )
         align = vec * 4
@@ -3625,11 +3692,12 @@ class _Lowerer:
         indices = list(op.operands[1:])
         vec = int(op.attrs["vec"])
         gname, stype = self._smem_global_name(smem)
+        base_ptr = self._emit_smem_base_ptr(gname, stype)
         agg_ty = _smem_storage_type(stype)
         base = self._fresh("smem.base")
         idx_strs = ["i32 0"] + [f"i32 {self._operand(i)}" for i in indices]
         self._current().emit(
-            f"  {base} = getelementptr inbounds {agg_ty}, ptr addrspace(3) {gname}, "
+            f"  {base} = getelementptr inbounds {agg_ty}, ptr addrspace(3) {base_ptr}, "
             f"{', '.join(idx_strs)}"
         )
         align = vec * 4
@@ -4290,28 +4358,18 @@ class _Lowerer:
         out.append(f'target triple = "{self._backend.triple}"')
         out.append("")
 
-        # smem globals.
-        # ``align 4`` matches the natural alignment of f16/bf16/f32/i32
-        # LDS storage and is what every 16 B ``ds_read_b128`` /
-        # ``ds_write_b128`` issued against them needs (the runtime
-        # offset math handles the per-row 16 B stride). The exception
-        # is fp8/bf8/i8 storage paired with ``ds_read_b64_tr_b8``: that
-        # intrinsic packs 8 bytes per lane and the AMDGPU backend
-        # requires the load address to be 8 B aligned; landing the i8
-        # global on a 4 B boundary silently corrupts the b64
-        # transpose-read output. Bump only the i8/fp8 globals to 16 B
-        # so the b64 transpose-read is always safe; leave fp16/f32
-        # globals at align 4 (raising them would inflate occupancy
-        # pressure on long-prefill 3D kernels).
-        for gname, stype in self._smem_globals:
-            agg = _smem_storage_type(stype)
-            elem_name = stype.elem.name
-            elem_is_byte = elem_name in ("i8", "fp8e4m3", "bf8e5m2")
-            align = 16 if elem_is_byte else 4
-            out.append(
-                f"{gname} = internal unnamed_addr addrspace(3) global {agg} poison, align {align}"
-            )
+        # smem pool: a single unified addrspace(3) global backing all smem
+        # allocations. Segments are packed sequentially with per-allocation
+        # alignment (4 bytes for f16/bf16/f32/i32, 16 bytes for i8/fp8).
+        # Each _op_tile_smem_* method emits a byte-level GEP to its segment
+        # base before the typed aggregate GEP, so the typed addressing is
+        # unchanged. align 16 satisfies all segment alignments (the strictest
+        # is the 16-byte requirement for ds_read_b64_tr_b8 on i8/fp8 tiles).
         if self._smem_globals:
+            out.append(
+                f"{self._smem_pool_name} = internal unnamed_addr addrspace(3) "
+                f"global [{self._smem_pool_size} x i8] poison, align 16"
+            )
             out.append("")
 
         # Intrinsic declarations actually used. ``self._decls`` is
@@ -4556,6 +4614,7 @@ def _lower_kernel_to_llvm_python(
     """
     lowerer = _Lowerer(kernel, llvm_flavor=llvm_flavor, arch=arch)
     lowerer._collect_smem(kernel.body)
+    lowerer._compute_smem_layout()
     lowerer.lower_region(kernel.body)
     return lowerer.finalize()
 
