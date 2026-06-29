@@ -53,7 +53,7 @@ struct by_key_set_benchmark : public primbench::benchmark_interface
       .add("subalgo", "by_key")
       .add("value_type", primbench::name<T>())
       .add("key_type", primbench::name<K>())
-      .add("elements", m_items)
+      .add("elements", bench_utils::format_pow2(m_items))
       .add("entropy", bench_utils::get_entropy_percentage(entropy_reduction))
       .add("input_size_ratio", input_size_ratio);
   }

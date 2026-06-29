@@ -62,13 +62,13 @@ struct copy_benchmark : public primbench::benchmark_interface
       .add("algo", "copy")
       .add("subalgo", "if")
       .add("input_type", primbench::name<T>())
-      .add("elements", m_items)
+      .add("elements", bench_utils::format_pow2(m_items))
       .add("entropy", bench_utils::get_entropy_percentage(entropy));
   }
 
   void run(primbench::state& state) override
   {
-    T val =  bench_utils::value_from_entropy<T>(bench_utils::get_entropy_percentage(entropy));
+    T val = bench_utils::value_from_entropy<T>(bench_utils::get_entropy_percentage(entropy));
     less_then_t<T> select_op{val};
 
     bench_utils::caching_allocator_t alloc{};
@@ -91,12 +91,12 @@ private:
   size_t entropy;
 };
 
-#define QUEUE(T)                                    \
+#define QUEUE(T)                                        \
   for (size_t size : bench_utils::sizes(2 * sizeof(T))) \
-  {                                                 \
-    executor.queue<copy_benchmark<T>>(size, 0);     \
-    executor.queue<copy_benchmark<T>>(size, 2);     \
-    executor.queue<copy_benchmark<T>>(size, 4200);  \
+  {                                                     \
+    executor.queue<copy_benchmark<T>>(size, 0);         \
+    executor.queue<copy_benchmark<T>>(size, 2);         \
+    executor.queue<copy_benchmark<T>>(size, 4200);      \
   }
 
 int main(int argc, char* argv[])
@@ -104,7 +104,7 @@ int main(int argc, char* argv[])
   primbench::settings settings;
   settings.size                 = 1; // bench_utils::sizes() calculates it later.
   settings.min_gpu_ms_per_batch = 100;
-  settings.batch_window_size = 2;
+  settings.batch_window_size    = 2;
   primbench::executor executor(argc, argv, settings, primbench::flags::sync);
 
   QUEUE(int8_t)
@@ -114,7 +114,7 @@ int main(int argc, char* argv[])
 
   QUEUE(float)
   QUEUE(double)
-  
+
   QUEUE(bench_utils::large_data)
 
   executor.run();

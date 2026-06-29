@@ -48,7 +48,7 @@ struct exclusive_scan_benchmark : public primbench::benchmark_interface
       .add("subalgo", "by_key")
       .add("value_type", primbench::name<T>())
       .add("key_type", primbench::name<K>())
-      .add("elements", m_items);
+      .add("elements", bench_utils::format_pow2(m_items));
   }
 
   void run(primbench::state& state) override
@@ -105,7 +105,7 @@ int main(int argc, char* argv[])
   primbench::settings settings;
   settings.size                 = 1; // bench_utils::sizes() calculates it later.
   settings.min_gpu_ms_per_batch = 100;
-  settings.batch_window_size = 3;
+  settings.batch_window_size    = 3;
   primbench::executor executor(argc, argv, settings, primbench::flags::sync);
 
   QUEUE_KEY(int8_t)

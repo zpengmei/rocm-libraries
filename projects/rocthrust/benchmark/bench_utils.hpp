@@ -234,6 +234,17 @@ inline std::vector<size_t> sizes(size_t bytes_per_element)
   return result;
 }
 
+inline std::string format_pow2(size_t n)
+{
+  unsigned int k = 0;
+  while (!(n & 1))
+  {
+    k++;
+    n >>= 1;
+  }
+  return "1 << " + std::to_string(k);
+}
+
 } // namespace bench_utils
 
 PRIMBENCH_REGISTER_TYPE(int8_t, "i8")

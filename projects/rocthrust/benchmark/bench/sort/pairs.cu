@@ -48,7 +48,7 @@ struct sort_benchmark : public primbench::benchmark_interface
       .add("subalgo", "pairs")
       .add("key_type", primbench::name<K>())
       .add("value_type", primbench::name<T>())
-      .add("elements", m_items)
+      .add("elements", bench_utils::format_pow2(m_items))
       .add("entropy", bench_utils::get_entropy_percentage(entropy_reduction));
   }
 
@@ -94,7 +94,7 @@ int main(int argc, char* argv[])
   primbench::settings settings;
   settings.size                 = 1; // bench_utils::sizes() calculates it later.
   settings.min_gpu_ms_per_batch = 100;
-  settings.batch_window_size = 3;
+  settings.batch_window_size    = 3;
   primbench::executor executor(argc, argv, settings, primbench::flags::sync);
 
   constexpr int entropy_reductions[] = {0, 2, 6}; // 1.000, 0.544, 0.000;

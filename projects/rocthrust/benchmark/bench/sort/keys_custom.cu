@@ -48,7 +48,7 @@ struct sort_benchmark : public primbench::benchmark_interface
       .add("algo", "sort")
       .add("subalgo", "keys_custom")
       .add("input_type", primbench::name<T>())
-      .add("elements", m_items)
+      .add("elements", bench_utils::format_pow2(m_items))
       .add("entropy", bench_utils::get_entropy_percentage(entropy_reduction));
   }
 

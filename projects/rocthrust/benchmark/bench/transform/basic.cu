@@ -101,7 +101,7 @@ struct transform_benchmark : public primbench::benchmark_interface
       .add("algo", "transform")
       .add("subalgo", "basic")
       .add("input_type", primbench::name<T>())
-      .add("elements", m_items);
+      .add("elements", bench_utils::format_pow2(m_items));
   }
 
   void run(primbench::state& state) override
@@ -263,7 +263,7 @@ struct transform_babel_benchmark : public primbench::benchmark_interface
       .add("algo", "transform")
       .add("subalgo", std::string("babelstream.") + OpT::name)
       .add("input_type", primbench::name<T>())
-      .add("elements", m_items);
+      .add("elements", bench_utils::format_pow2(m_items));
   }
 
   void run(primbench::state& state) override

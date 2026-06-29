@@ -62,19 +62,20 @@ static_assert(!thrust::is_trivially_relocatable<non_trivial>::value, ""); // thr
 
 PRIMBENCH_REGISTER_TYPE(non_trivial, "non_trivial")
 
-
 template <typename T>
 struct copy_benchmark : public primbench::benchmark_interface
 {
-  copy_benchmark(size_t items) : m_items(items) {}
+  copy_benchmark(size_t items)
+      : m_items(items)
+  {}
 
-    primbench::json meta() const override
+  primbench::json meta() const override
   {
     return primbench::json{}
       .add("algo", "copy")
       .add("subalgo", "basic")
       .add("input_type", primbench::name<T>())
-      .add("elements", m_items);
+      .add("elements", bench_utils::format_pow2(m_items));
   }
 
   void run(primbench::state& state) override
@@ -94,20 +95,20 @@ struct copy_benchmark : public primbench::benchmark_interface
     });
   }
 
-  private:
-    size_t m_items;
+private:
+  size_t m_items;
 };
 
-#define QUEUE(T)                                    \
+#define QUEUE(T)                                        \
   for (size_t size : bench_utils::sizes(2 * sizeof(T))) \
     executor.queue<copy_benchmark<T>>(size);
 
 int main(int argc, char* argv[])
 {
   primbench::settings settings;
-  settings.size = 1; // bench_utils::sizes() calculates it later.
+  settings.size                 = 1; // bench_utils::sizes() calculates it later.
   settings.min_gpu_ms_per_batch = 75;
-  settings.batch_window_size = 3;
+  settings.batch_window_size    = 3;
   primbench::executor executor(argc, argv, settings, primbench::flags::sync);
 
   QUEUE(int8_t)
@@ -119,10 +120,10 @@ int main(int argc, char* argv[])
   QUEUE(uint16_t)
   QUEUE(uint32_t)
   QUEUE(uint64_t)
-  
+
   QUEUE(float)
   QUEUE(double)
-  
+
   QUEUE(non_trivial)
 
   executor.run();

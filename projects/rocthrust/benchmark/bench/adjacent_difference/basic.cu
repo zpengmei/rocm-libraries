@@ -26,25 +26,26 @@
  *
  ******************************************************************************/
 
-#include "bench_utils.hpp"
-
 #include <thrust/adjacent_difference.h>
 #include <thrust/device_vector.h>
 #include <thrust/execution_policy.h>
 
+#include "bench_utils.hpp"
 
 template <typename T>
 struct adjacent_difference_benchmark : public primbench::benchmark_interface
 {
-  adjacent_difference_benchmark(size_t items) : m_items(items) {}
+  adjacent_difference_benchmark(size_t items)
+      : m_items(items)
+  {}
 
-    primbench::json meta() const override
+  primbench::json meta() const override
   {
     return primbench::json{}
       .add("algo", "adjacent_difference")
       .add("subalgo", "basic")
       .add("input_type", primbench::name<T>())
-      .add("elements", m_items);
+      .add("elements", bench_utils::format_pow2(m_items));
   }
 
   void run(primbench::state& state) override
@@ -65,18 +66,18 @@ struct adjacent_difference_benchmark : public primbench::benchmark_interface
     });
   }
 
-  private:
-    size_t m_items;
+private:
+  size_t m_items;
 };
 
-#define QUEUE(T)                                    \
+#define QUEUE(T)                                        \
   for (size_t size : bench_utils::sizes(2 * sizeof(T))) \
     executor.queue<adjacent_difference_benchmark<T>>(size);
 
 int main(int argc, char* argv[])
 {
   primbench::settings settings;
-  settings.size = 1; // bench_utils::sizes() calculates it later.
+  settings.size                 = 1; // bench_utils::sizes() calculates it later.
   settings.min_gpu_ms_per_batch = 10;
   primbench::executor executor(argc, argv, settings, primbench::flags::sync);
 
@@ -84,7 +85,7 @@ int main(int argc, char* argv[])
   QUEUE(int16_t)
   QUEUE(int32_t)
   QUEUE(int64_t)
-  
+
   QUEUE(float)
   QUEUE(double)
 

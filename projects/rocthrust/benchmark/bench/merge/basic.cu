@@ -50,7 +50,7 @@ struct merge_benchmark : public primbench::benchmark_interface
       .add("algo", "merge")
       .add("subalgo", "basic")
       .add("input_type", primbench::name<T>())
-      .add("elements", m_items)
+      .add("elements", bench_utils::format_pow2(m_items))
       .add("entropy", bench_utils::get_entropy_percentage(entropy_reduction))
       .add("input_size_ratio", input_size_ratio);
   }
@@ -94,7 +94,7 @@ int main(int argc, char* argv[])
   primbench::settings settings;
   settings.size                 = 1; // bench_utils::sizes() calculates it later.
   settings.min_gpu_ms_per_batch = 100;
-  settings.batch_window_size = 2;
+  settings.batch_window_size    = 2;
   primbench::executor executor(argc, argv, settings, primbench::flags::sync);
 
   constexpr int entropy_reductions[]   = {0, 4}; // 1.000, 0.201;
