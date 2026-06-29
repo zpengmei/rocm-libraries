@@ -35,7 +35,7 @@ from __future__ import annotations
 import os
 import sys
 from dataclasses import dataclass, field
-from typing import Dict, List, Optional, Tuple
+from typing import Dict, List, Optional, Set, Tuple
 
 from .ir import (
     KernelDef,
@@ -967,15 +967,77 @@ class _Lowerer:
             for r in op.regions:
                 self._collect_smem(r)
 
+    def _collect_smem_liveness(self, region: Region) -> Dict[str, Tuple[int, int]]:
+        """Compute live intervals for smem allocations via a DFS preorder walk.
+
+        Returns a dict mapping global-name -> (first_seq, last_seq) where
+        seq is the preorder index of the op that defines / last-uses the
+        allocation.  Allocations inside a loop body (``scf.for``) are
+        conservatively extended to the sequence index of the enclosing
+        ``scf.for`` op so that two allocations that are both live inside the
+        loop always interfere (they may be read on any iteration).
+        """
+        # Map from IR value name (%foo) -> global name (@foo.kernel)
+        val_to_gname: Dict[str, str] = {
+            v: g for v, g in self._smem_storage_name.items()
+        }
+        intervals: Dict[str, Tuple[int, int]] = {}  # gname -> (first, last)
+        counter = [0]  # mutable int for nested closures
+
+        def walk(ops: List, loop_end: Optional[int]) -> None:
+            for op in ops:
+                idx = counter[0]
+                counter[0] += 1
+
+                # Definition point of an alloc
+                if op.name == "tile.smem_alloc":
+                    gname = val_to_gname[op.result.name]
+                    if gname not in intervals:
+                        intervals[gname] = (idx, idx)
+
+                # Any operand that is an smem value extends its live range
+                for v in op.operands:
+                    gname = val_to_gname.get(v.name)
+                    if gname is not None:
+                        first, last = intervals.get(gname, (idx, idx))
+                        new_last = loop_end if loop_end is not None else idx
+                        intervals[gname] = (min(first, idx), max(last, new_last))
+
+                # Recurse into sub-regions; scf.for gets a conservative loop_end
+                for r in op.regions:
+                    if op.name == "scf.for":
+                        # All seq indices inside the loop body count as live
+                        # until the for-op itself finishes (idx).  We pass
+                        # idx as loop_end so any use inside extends to idx.
+                        walk(r.ops, loop_end=idx)
+                    else:
+                        walk(r.ops, loop_end=loop_end)
+
+        walk(region.ops, loop_end=None)
+        return intervals
+
     def _compute_smem_layout(self) -> None:
         """Compute byte offsets for all smem allocations in a single pool.
 
-        Called after ``_collect_smem`` and before ``lower_region``. Each
-        allocation is packed sequentially with its natural alignment (4 bytes
-        for f16/bf16/f32/i32, 16 bytes for i8/fp8). The pool itself is
-        aligned to 16 bytes. The computed offsets are used by
-        ``_emit_smem_base_ptr`` to generate a byte-offset GEP into the single
-        ``@smem_pool.<kernel>`` global instead of per-allocation globals.
+        Called after ``_collect_smem`` and before ``lower_region``.
+
+        Uses live-interval analysis to let non-interfering allocations share
+        the same LDS region.  Two allocations *interfere* when their live
+        intervals overlap; overlapping allocations must occupy disjoint byte
+        ranges.  Non-interfering allocations may reuse the same range,
+        reducing total LDS consumption.
+
+        The packing algorithm is a greedy linear-scan: allocations are
+        processed in order of their live-interval start.  For each allocation
+        we find the lowest free slot (a previously assigned range whose end
+        is before the current start and whose size is large enough), or open
+        a new slot at the end of the pool.
+
+        Alignment is preserved: 16 bytes for byte-element types, 4 bytes
+        otherwise.  The pool itself is rounded up to 16-byte alignment.
+
+        Falls back to the original sequential packing when liveness analysis
+        yields no intervals (e.g. zero smem allocations).
         """
         _elem_bytes = {
             "i8": 1,
@@ -987,20 +1049,89 @@ class _Lowerer:
             "f32": 4,
             "i64": 8,
         }
-        offset = 0
+
         pool_name = f"@smem_pool.{self.kernel.name}"
-        for gname, stype in self._smem_globals:
-            elem_is_byte = stype.elem.name in ("i8", "fp8e4m3", "bf8e5m2")
-            align = 16 if elem_is_byte else 4
-            offset = (offset + align - 1) & ~(align - 1)
-            self._smem_offsets[gname] = offset
+        self._smem_pool_name = pool_name
+
+        if not self._smem_globals:
+            self._smem_pool_size = 0
+            return
+
+        # ---- compute per-allocation sizes and alignments ----
+        def _seg_size(stype: "SmemType") -> int:
             eb = _elem_bytes.get(stype.elem.name, 2)
             seg = eb
             for d in stype.shape:
                 seg *= d
-            offset += seg
-        self._smem_pool_size = (offset + 15) & ~15
-        self._smem_pool_name = pool_name
+            return seg
+
+        def _align(stype: "SmemType") -> int:
+            return 16 if stype.elem.name in ("i8", "fp8e4m3", "bf8e5m2") else 4
+
+        # ---- live intervals from the kernel body ----
+        live = self._collect_smem_liveness(self.kernel.body)
+
+        # Sort allocations by live-interval start (definition order is a good
+        # proxy; fall back to declaration order for allocations with no uses).
+        def _sort_key(item: Tuple[str, "SmemType"]) -> int:
+            gname, _ = item
+            return live.get(gname, (0, 0))[0]
+
+        sorted_allocs = sorted(self._smem_globals, key=_sort_key)
+
+        # ---- greedy interval packing ----
+        # Each "slot" is (offset, size, last_seq) – the byte range it occupies
+        # and the latest sequence index at which it is still live.
+        slots: List[Tuple[int, int, int]] = []  # (offset, size, last_seq)
+
+        for gname, stype in sorted_allocs:
+            seg = _seg_size(stype)
+            aln = _align(stype)
+            first_seq, last_seq = live.get(gname, (0, 0))
+
+            # Try to reuse any slot that is free before this allocation starts.
+            # A "free" slot (s_last < first_seq) provides a candidate base
+            # address: we place the new allocation at aligned(s_off), regardless
+            # of whether it fits within s_size.  The allocation may extend
+            # beyond the slot's original footprint — that is intentional.
+            #
+            # Example: A (12 KB, live 0..3) and B (12 KB, live 1..3) are packed
+            # into slots [0,12K] and [12K,12K].  C (64 KB, live 5..10) is free
+            # to reuse slot A (starting at offset 0) even though 64 KB > 12 KB.
+            # The pool size becomes max(0+64K, 12K+12K) = 64 KB instead of
+            # 12K+12K+64K = 88 KB.
+            #
+            # Among free slots, prefer the one with the smallest aligned start
+            # (lowest address, cache-friendly, minimises pool fragmentation).
+            best: Optional[int] = None  # index into slots[]
+            for i, (s_off, s_size, s_last) in enumerate(slots):
+                if s_last >= first_seq:
+                    # Still live when we start – interference, skip.
+                    continue
+                aligned_off = (s_off + aln - 1) & ~(aln - 1)
+                if best is None or aligned_off < (slots[best][0] + aln - 1) & ~(
+                    aln - 1
+                ):
+                    best = i
+
+            if best is not None:
+                s_off, s_size, _ = slots[best]
+                aligned_off = (s_off + aln - 1) & ~(aln - 1)
+                self._smem_offsets[gname] = aligned_off
+                # Expand the slot to cover the new allocation if it overflows.
+                new_size = max(s_size, aligned_off - s_off + seg)
+                slots[best] = (s_off, new_size, last_seq)
+            else:
+                # No reusable slot – open a new one at the end of the pool.
+                current_end = max(
+                    (s_off + s_size for s_off, s_size, _ in slots), default=0
+                )
+                aligned_off = (current_end + aln - 1) & ~(aln - 1)
+                self._smem_offsets[gname] = aligned_off
+                slots.append((aligned_off, seg, last_seq))
+
+        pool_size = max(s_off + s_size for s_off, s_size, _ in slots)
+        self._smem_pool_size = (pool_size + 15) & ~15
 
     def _emit_smem_base_ptr(self, gname: str, stype: SmemType) -> str:
         """Return an addrspace(3) pointer to the start of the smem segment.
