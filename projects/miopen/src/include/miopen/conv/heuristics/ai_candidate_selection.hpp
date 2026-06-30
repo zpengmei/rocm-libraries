@@ -85,7 +85,7 @@ EncodeKernelConfigsWithFdeep(const std::vector<std::vector<float>>& encoded_cand
                              const std::string& solver);
 
 /// Expands problem features into the vector consumed by the input_encoder submodel.
-/// Produces the same 2D engineered features as ExtractTunaNetND2dFeatures (ai_heuristics.cpp) --
+/// Produces the same 2D engineered features as ExtractTunaNetNDFeatures (ai_heuristics.cpp) --
 /// they share the derived-feature math via common::EngineeredConvFeatures -- except the direction
 /// one-hot is omitted here when direction is a CandidateSelection constant.
 /// All metadata-driven quantities (precision/layout one-hot encodings and widths, and num_cu for

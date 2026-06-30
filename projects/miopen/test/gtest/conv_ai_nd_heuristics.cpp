@@ -463,7 +463,7 @@ TEST_P(GPU_ConvNDAIHeuristics_FP32, ExtractTunaNet2dFeaturesGolden)
     const auto problem = Create2DProblem(
         1, 64, 56, 56, 64, 3, 3, 1, 1, 1, 1, 1, 1, miopen::conv::Direction::Forward, miopenFloat);
 
-    const auto features = immed_mode::ExtractTunaNetND2dFeatures(problem, /*isFwd=*/true, metadata);
+    const auto features = immed_mode::ExtractTunaNetNDFeatures(problem, /*isFwd=*/true, metadata);
 
     std::vector<float> expected;
     const auto append_one_hot = [&](size_t index, size_t width) {
@@ -512,6 +512,105 @@ TEST_P(GPU_ConvNDAIHeuristics_FP32, ExtractTunaNet2dFeaturesGolden)
         EXPECT_FLOAT_EQ(features[i], expected[i]) << "TunaNet feature mismatch at index " << i;
 }
 
+TEST_P(GPU_ConvNDAIHeuristics_FP32, ExtractTunaNet3dFeaturesGolden)
+{
+    if(spatial_dim != 3)
+        GTEST_SKIP() << "Engineered input features are 3D-only";
+    if(device_name != "gfx942" && device_name != "gfx950")
+        GTEST_SKIP() << "Engineered 3D TunaNet is gfx942/gfx950 only";
+
+    immed_mode::MetadataND metadata(device_name, spatial_dim);
+    ASSERT_TRUE(metadata.IsValid());
+
+    // Smoke shape from ConvHipImplicitGemm3DGroupFwdXdlops unit tests (NCDHW, FP16).
+    const auto problem = Create3DProblem(64,
+                                         32,
+                                         28,
+                                         28,
+                                         28,
+                                         32,
+                                         3,
+                                         3,
+                                         3,
+                                         1,
+                                         1,
+                                         1,
+                                         1,
+                                         1,
+                                         1,
+                                         1,
+                                         1,
+                                         1,
+                                         miopen::conv::Direction::Forward,
+                                         miopenHalf);
+    const auto features = immed_mode::ExtractTunaNetNDFeatures(problem, /*isFwd=*/true, metadata);
+
+    std::vector<float> expected;
+    const auto append_one_hot = [&](size_t index, size_t width) {
+        std::vector<float> one_hot(width, 0.0f);
+        if(index < width)
+            one_hot.at(index) = 1.0f;
+        expected.insert(expected.end(), one_hot.begin(), one_hot.end());
+    };
+    append_one_hot(metadata.EncodeInLayout(problem.GetInLayout()),
+                   metadata.GetInLayoutClassCount());
+    append_one_hot(metadata.EncodeFilLayout(problem.GetWeightsLayout()),
+                   metadata.GetFilLayoutClassCount());
+    append_one_hot(metadata.EncodeOutLayout(problem.GetOutLayout()),
+                   metadata.GetOutLayoutClassCount());
+    append_one_hot(metadata.EncodePrecision(problem.GetInDataType()),
+                   metadata.GetPrecisionClassCount());
+    append_one_hot(metadata.EncodeDirection(problem.GetDirection()),
+                   metadata.GetDirectionClassCount());
+
+    const std::vector<float> raw = {32.0f,
+                                    28.0f,
+                                    28.0f,
+                                    28.0f,
+                                    32.0f,
+                                    28.0f,
+                                    28.0f,
+                                    28.0f,
+                                    3.0f,
+                                    3.0f,
+                                    3.0f,
+                                    1.0f,
+                                    1.0f,
+                                    1.0f,
+                                    1.0f,
+                                    1.0f,
+                                    1.0f,
+                                    1.0f,
+                                    1.0f,
+                                    1.0f,
+                                    64.0f,
+                                    1.0f};
+    expected.insert(expected.end(), raw.begin(), raw.end());
+
+    const auto derived = common::EngineeredConvFeatures(64,
+                                                        32,
+                                                        32,
+                                                        28,
+                                                        28,
+                                                        28,
+                                                        28,
+                                                        3,
+                                                        3,
+                                                        1,
+                                                        metadata.GetNumCu(),
+                                                        common::ConvDirection::Forward,
+                                                        3,
+                                                        28,
+                                                        28,
+                                                        3);
+    expected.insert(expected.end(), derived.begin(), derived.end());
+
+    ASSERT_EQ(features.size(), metadata.GetNumInputs());
+    ASSERT_EQ(features.size(), expected.size());
+    for(size_t i = 0; i < expected.size(); ++i)
+        EXPECT_FLOAT_EQ(features[i], expected[i]) << "TunaNet 3D feature mismatch at index " << i;
+}
+
 // Hardcoded counterpart to ExtractTunaNet2dFeaturesGolden: the one-hot widths/indices and num_cu
 // are written as literals rather than re-derived from the metadata, so a retrain that silently
 // changes the precision class count (e.g. dropping INT8: 4 -> 3) or num_cu is caught here -- the
@@ -538,7 +637,7 @@ TEST_P(GPU_ConvNDAIHeuristics_FP32, ExtractTunaNet2dFeaturesHardcoded)
 
     const auto problem = Create2DProblem(
         1, 64, 56, 56, 64, 3, 3, 1, 1, 1, 1, 1, 1, miopen::conv::Direction::Forward, miopenFloat);
-    const auto features = immed_mode::ExtractTunaNetND2dFeatures(problem, /*isFwd=*/true, metadata);
+    const auto features = immed_mode::ExtractTunaNetNDFeatures(problem, /*isFwd=*/true, metadata);
 
     // Categorical one-hots for an NCHW / FP32 / Forward problem, written out by hand:
     //   in/fil/out layout = NCHW (index 0 of 2); precision = FP32 (index 2 of 4);
@@ -597,7 +696,7 @@ INSTANTIATE_TEST_SUITE_P(Full,
                          ::testing::ValuesIn(GenerateConvNDParams()),
                          ConvNDParamName);
 
-// Golden vectors for the derived-feature block shared by the TunaNet (ExtractTunaNetND2dFeatures)
+// Golden vectors for the derived-feature block shared by the TunaNet (ExtractTunaNetNDFeatures)
 // and candidate-selection input encoders via common::EngineeredConvFeatures. Pins the shared math
 // so a hasty change on either path is caught. Uses C_in != C_out and all three directions so the
 // direction-dependent GEMM (M, N, K) assignment is fully exercised (C_in == C_out would hide it).
@@ -692,6 +791,29 @@ TEST(CPU_ConvAiEngineeredConvFeatures_NONE, Golden)
                 << "derived feature mismatch at index " << i << " (direction "
                 << static_cast<int>(c.dir) << ")";
     }
+}
+
+TEST(CPU_ConvAiEngineeredConv3dFeatures_NONE, Golden)
+{
+    const auto derived = common::EngineeredConvFeatures(
+        /*N=*/2,
+        /*C_in=*/64,
+        /*C_out=*/128,
+        /*H_in=*/16,
+        /*W_in=*/16,
+        /*H_out=*/14,
+        /*W_out=*/14,
+        /*K_h=*/3,
+        /*K_w=*/3,
+        /*groups=*/1,
+        /*num_cu=*/304,
+        common::ConvDirection::Forward,
+        /*spatial_dim=*/3,
+        /*D_in=*/8,
+        /*D_out=*/6,
+        /*K_d=*/3);
+    ASSERT_EQ(derived.size(), 19u);
+    EXPECT_FLOAT_EQ(derived.back(), std::log1p(8.0f));
 }
 
 // Every bundled fdeep model file must be loadable by the deployed frugally-deep. This fails

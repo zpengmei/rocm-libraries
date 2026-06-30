@@ -408,7 +408,7 @@ EngineerCandidateSelectionInputFeatures(const std::map<std::string, float>& feat
     // here so a model whose feature map omits/differs on spatial_dim still engineers correctly.
     MIOPEN_LOG_I2("Using engineered 2d features for Candidate Selection");
 
-    // Shares the derived-feature math with ExtractTunaNetND2dFeatures (ai_heuristics.cpp) via
+    // Shares the derived-feature math with ExtractTunaNetNDFeatures (ai_heuristics.cpp) via
     // common::EngineeredConvFeatures; only the input source and the omitted direction one-hot
     // differ.
     const float direction_code = FeatureAt(features_by_name, "direction");
@@ -479,7 +479,7 @@ EngineerCandidateSelectionInputFeatures(const std::map<std::string, float>& feat
     }
     const auto precision =
         common::OneHot(static_cast<long long>(precision_index), precision_class_count);
-    // Direction one-hot is present in ExtractTunaNetND2dFeatures but omitted here because
+    // Direction one-hot is present in ExtractTunaNetNDFeatures but omitted here because
     // CandidateSelection metadata holds direction as a constant input.
 
     std::vector<float> engineered;
