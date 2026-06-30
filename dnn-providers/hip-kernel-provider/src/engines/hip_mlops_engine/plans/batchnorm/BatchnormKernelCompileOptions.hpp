@@ -18,21 +18,13 @@ public:
     BatchnormKernelCompileOptions(
         const hipdnn_flatbuffers_sdk::data_objects::TensorAttributes* inputTensorAttrs,
         const hipDeviceProp_t& deviceProps,
-        const std::optional<ActivationMode>& optActivationMode = std::nullopt)
+        const ActivationMode optActivationMode = ActivationMode::PASTHRU)
         : KernelCompileOptions(inputTensorAttrs, deviceProps)
     {
         addBatchnormDefaults();
 
-        // Add activation options if activation is fused
-        if(optActivationMode.has_value())
-        {
-            const int nrnOpId = static_cast<int>(optActivationMode.value());
-            add("HIP_PLUGIN_BN_NRN_OP_ID", nrnOpId);
-        }
-        else
-        {
-            add("HIP_PLUGIN_BN_NRN_OP_ID", 0);
-        }
+        const int nrnOpId = static_cast<int>(optActivationMode);
+        add("HIP_PLUGIN_BN_NRN_OP_ID", nrnOpId);
     }
 
     ~BatchnormKernelCompileOptions() = default;
