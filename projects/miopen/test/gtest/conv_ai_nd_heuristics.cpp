@@ -507,6 +507,8 @@ TEST_P(GPU_ConvNDAIHeuristics_FP32, ExtractTunaNet2dFeaturesGolden)
         1, 64, 64, 56, 56, 56, 56, 3, 3, 1, metadata.GetNumCu(), common::ConvDirection::Forward);
     expected.insert(expected.end(), derived.begin(), derived.end());
 
+    ASSERT_EQ(metadata.GetEngineeredNumInputs(), 47u);
+    ASSERT_EQ(features.size(), metadata.GetEngineeredNumInputs());
     ASSERT_EQ(features.size(), expected.size());
     for(size_t i = 0; i < expected.size(); ++i)
         EXPECT_FLOAT_EQ(features[i], expected[i]) << "TunaNet feature mismatch at index " << i;
@@ -605,7 +607,7 @@ TEST_P(GPU_ConvNDAIHeuristics_FP32, ExtractTunaNet3dFeaturesGolden)
                                                         3);
     expected.insert(expected.end(), derived.begin(), derived.end());
 
-    ASSERT_EQ(features.size(), metadata.GetNumInputs());
+    ASSERT_EQ(features.size(), metadata.GetEngineeredNumInputs());
     ASSERT_EQ(features.size(), expected.size());
     for(size_t i = 0; i < expected.size(); ++i)
         EXPECT_FLOAT_EQ(features[i], expected[i]) << "TunaNet 3D feature mismatch at index " << i;
@@ -678,6 +680,8 @@ TEST_P(GPU_ConvNDAIHeuristics_FP32, ExtractTunaNet2dFeaturesHardcoded)
         1, 64, 64, 56, 56, 56, 56, 3, 3, 1, expected_num_cu, common::ConvDirection::Forward);
     expected.insert(expected.end(), derived.begin(), derived.end());
 
+    ASSERT_EQ(metadata.GetEngineeredNumInputs(), 47u);
+    ASSERT_EQ(features.size(), metadata.GetEngineeredNumInputs());
     ASSERT_EQ(features.size(), expected.size());
     for(size_t i = 0; i < expected.size(); ++i)
         EXPECT_FLOAT_EQ(features[i], expected[i])

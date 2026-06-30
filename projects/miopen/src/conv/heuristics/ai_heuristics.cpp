@@ -947,6 +947,68 @@ std::vector<uint64_t> PredictSolver(const conv::ProblemDescription& problem,
 
 // MetadataND implementation moved to metadata_nd.cpp
 
+namespace {
+
+bool IsTunaNetCategoricalFeature(const std::string& name)
+{
+    return name == "in_layout" || name == "fil_layout" || name == "out_layout" ||
+           name == "precision" || name == "direction";
+}
+
+float TunaNetRawFeatureValue(const std::string& name,
+                             const conv::ProblemDescription& problem,
+                             bool isFwd)
+{
+    if(name == "in_channels")
+        return static_cast<float>(isFwd ? problem.GetInChannels() : problem.GetOutChannels());
+    if(name == "in_d")
+        return static_cast<float>(isFwd ? problem.GetInDepth() : problem.GetOutDepth());
+    if(name == "in_h")
+        return static_cast<float>(isFwd ? problem.GetInHeight() : problem.GetOutHeight());
+    if(name == "in_w")
+        return static_cast<float>(isFwd ? problem.GetInWidth() : problem.GetOutWidth());
+    if(name == "out_channels")
+        return static_cast<float>(isFwd ? problem.GetOutChannels() : problem.GetInChannels());
+    if(name == "out_d")
+        return static_cast<float>(isFwd ? problem.GetOutDepth() : problem.GetInDepth());
+    if(name == "out_h")
+        return static_cast<float>(isFwd ? problem.GetOutHeight() : problem.GetInHeight());
+    if(name == "out_w")
+        return static_cast<float>(isFwd ? problem.GetOutWidth() : problem.GetInWidth());
+    if(name == "fil_d")
+        return static_cast<float>(problem.GetWeightsDepth());
+    if(name == "fil_h")
+        return static_cast<float>(problem.GetWeightsHeight());
+    if(name == "fil_w")
+        return static_cast<float>(problem.GetWeightsWidth());
+    if(name == "pad_d")
+        return static_cast<float>(problem.GetPadD());
+    if(name == "pad_h")
+        return static_cast<float>(problem.GetPadH());
+    if(name == "pad_w")
+        return static_cast<float>(problem.GetPadW());
+    if(name == "conv_stride_d")
+        return static_cast<float>(problem.GetKernelStrideD());
+    if(name == "conv_stride_h")
+        return static_cast<float>(problem.GetKernelStrideH());
+    if(name == "conv_stride_w")
+        return static_cast<float>(problem.GetKernelStrideW());
+    if(name == "dilation_d")
+        return static_cast<float>(problem.GetDilationD());
+    if(name == "dilation_h")
+        return static_cast<float>(problem.GetDilationH());
+    if(name == "dilation_w")
+        return static_cast<float>(problem.GetDilationW());
+    if(name == "batchsize")
+        return static_cast<float>(problem.GetOutBatchSize());
+    if(name == "group_count")
+        return static_cast<float>(problem.GetGroupCount());
+
+    MIOPEN_THROW("ExtractTunaNetNDFeatures: unsupported raw feature '" + name + "'");
+}
+
+} // namespace
+
 // Keep feature definitions in sync with EngineerCandidateSelectionInputFeatures
 // (ai_candidate_selection.cpp); implementations are intentionally separate.
 MIOPEN_INTERNALS_EXPORT std::vector<float> ExtractTunaNetNDFeatures(
@@ -988,51 +1050,15 @@ MIOPEN_INTERNALS_EXPORT std::vector<float> ExtractTunaNetNDFeatures(
         for(const auto bit : *one_hot)
             features.push_back(static_cast<float>(bit));
 
-    const std::vector<float> raw_tail =
-        (spatial_dim == 3)
-            ? std::vector<float>{
-                  static_cast<float>(C_in),
-                  static_cast<float>(D_in),
-                  static_cast<float>(H_in),
-                  static_cast<float>(W_in),
-                  static_cast<float>(C_out),
-                  static_cast<float>(D_out),
-                  static_cast<float>(H_out),
-                  static_cast<float>(W_out),
-                  static_cast<float>(K_d),
-                  static_cast<float>(K_h),
-                  static_cast<float>(K_w),
-                  static_cast<float>(problem.GetPadD()),
-                  static_cast<float>(problem.GetPadH()),
-                  static_cast<float>(problem.GetPadW()),
-                  static_cast<float>(problem.GetKernelStrideD()),
-                  static_cast<float>(problem.GetKernelStrideH()),
-                  static_cast<float>(problem.GetKernelStrideW()),
-                  static_cast<float>(problem.GetDilationD()),
-                  static_cast<float>(problem.GetDilationH()),
-                  static_cast<float>(problem.GetDilationW()),
-                  static_cast<float>(problem.GetOutBatchSize()),
-                  static_cast<float>(problem.GetGroupCount()),
-              }
-            : std::vector<float>{
-                  static_cast<float>(C_in),
-                  static_cast<float>(H_in),
-                  static_cast<float>(W_in),
-                  static_cast<float>(C_out),
-                  static_cast<float>(H_out),
-                  static_cast<float>(W_out),
-                  static_cast<float>(K_h),
-                  static_cast<float>(K_w),
-                  static_cast<float>(problem.GetPadH()),
-                  static_cast<float>(problem.GetPadW()),
-                  static_cast<float>(problem.GetKernelStrideH()),
-                  static_cast<float>(problem.GetKernelStrideW()),
-                  static_cast<float>(problem.GetDilationH()),
-                  static_cast<float>(problem.GetDilationW()),
-                  static_cast<float>(problem.GetOutBatchSize()),
-                  static_cast<float>(problem.GetGroupCount()),
-              };
-    features.insert(features.end(), raw_tail.begin(), raw_tail.end());
+    // Raw numerics follow conv_params_used_as_features order; categoricals are one-hot encoded
+    // above. Parameters removed as constants during training (e.g. dilation_* for MI355_3d) are
+    // absent from the metadata list and are not appended here.
+    for(const auto& feature_name : metadata.GetFeatures())
+    {
+        if(IsTunaNetCategoricalFeature(feature_name))
+            continue;
+        features.push_back(TunaNetRawFeatureValue(feature_name, problem, isFwd));
+    }
 
     const auto gemm_dir = problem.GetDirection() == conv::Direction::Forward
                               ? common::ConvDirection::Forward
@@ -1079,10 +1105,10 @@ public:
     std::vector<float> Forward(const conv::ProblemDescription& problem) const override
     {
         std::vector<float> features = ToFeatures(problem);
-        if(features.size() != metadata.GetNumInputs())
+        if(features.size() != metadata.GetEngineeredNumInputs())
         {
             MIOPEN_THROW("TunaNetNDModel: feature count mismatch: model expects " +
-                         std::to_string(metadata.GetNumInputs()) + ", got " +
+                         std::to_string(metadata.GetEngineeredNumInputs()) + ", got " +
                          std::to_string(features.size()));
         }
         MIOPEN_LOG_I2("TunaNetNDModel: Extracted " << features.size() << " features");

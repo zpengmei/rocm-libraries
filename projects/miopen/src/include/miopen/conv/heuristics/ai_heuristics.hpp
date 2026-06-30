@@ -260,10 +260,17 @@ public:
     const std::vector<std::string>& GetFeatures() const { return features; }
 
     /**
-     * @brief Get number of input features
-     * @return Number of inputs
+     * @brief Get number of input features recorded in metadata ("num_inputs").
+     * @return Raw convolution-parameter count from training export (excludes engineered one-hots
+     *         and derived features).
      */
     size_t GetNumInputs() const { return num_inputs; }
+
+    /**
+     * @brief Total engineered TunaNet input width: categorical one-hots, metadata-listed raw
+     *        numerics, and the common::EngineeredConvFeatures block.
+     */
+    MIOPEN_INTERNALS_EXPORT size_t GetEngineeredNumInputs() const;
 
     /**
      * @brief Compute-unit count the model was trained with (from "gpu.num_cu"), used to normalize
