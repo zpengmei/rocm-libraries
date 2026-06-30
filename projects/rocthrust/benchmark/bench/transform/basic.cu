@@ -45,17 +45,20 @@
 #define M0 0
 #define M1 42
 
-#define CHECK_VALID(T, S)                                                          \
-  bool valid = true;                                                               \
-  try                                                                              \
-  {                                                                                \
-    thrust::device_vector<T> in = bench_utils::generate(S, 123, M0, T{M0}, T{M1}); \
-    thrust::device_vector<uint32_t> out(S);                                        \
-  }                                                                                \
-  catch (const ::thrust::system::detail::bad_alloc& e)                             \
-  {                                                                                \
-    valid = false;                                                                 \
+template <typename T>
+inline bool check_valid(const size_t size)
+{
+  try
+  {
+    thrust::device_vector<T> in = bench_utils::generate(size, 123, M0, T{M0}, T{M1});
+    thrust::device_vector<uint32_t> out(size);
+    return true;
   }
+  catch (const ::thrust::system::detail::bad_alloc& e)
+  {
+    return false;
+  }
+}
 
 template <class InT, class OutT>
 struct fib_t
@@ -130,8 +133,7 @@ private:
 #define QUEUE(T)                                        \
   for (size_t size : bench_utils::sizes(2 * sizeof(T))) \
   {                                                     \
-    CHECK_VALID(T, size)                                \
-    if (!valid)                                         \
+    if (!check_valid<T>(size))                          \
       continue;                                         \
     executor.queue<transform_benchmark<T>>(size);       \
   }
@@ -294,8 +296,7 @@ private:
 
 #define QUEUE_BABEL_OP(T, S, OpT)                                        \
   {                                                                      \
-    CHECK_VALID(T, S)                                                    \
-    if (valid)                                                           \
+    if (check_valid<T>(S))                                               \
       executor.queue<transform_babel_benchmark<T, babelstream::OpT>>(S); \
   }
 

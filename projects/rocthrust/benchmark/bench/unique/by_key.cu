@@ -26,28 +26,29 @@
  *
  ******************************************************************************/
 
-// Benchmark utils
-#include "bench_utils.hpp"
-
-// rocThrust
 #include <thrust/device_vector.h>
 #include <thrust/execution_policy.h>
 #include <thrust/unique.h>
 
-#define CHECK_VALID(T, K, S, M)                                                                                       \
-  bool valid = true;                                                                                                  \
-  try                                                                                                                 \
-  {                                                                                                                   \
-    constexpr std::size_t min_segment_size = 1;                                                                       \
-    thrust::device_vector<K> in_keys       = bench_utils::generate.uniform.key_segments(S, 123, min_segment_size, M); \
-    thrust::device_vector<K> out_keys(S);                                                                             \
-    thrust::device_vector<T> in_vals(S);                                                                              \
-    thrust::device_vector<T> out_vals(S);                                                                             \
-  }                                                                                                                   \
-  catch (const ::thrust::system::detail::bad_alloc& e)                                                                \
-  {                                                                                                                   \
-    valid = false;                                                                                                    \
+#include "bench_utils.hpp"
+
+template <typename T, typename K>
+inline bool check_valid(const size_t size, const size_t maxi)
+{
+  try
+  {
+    constexpr std::size_t min_segment_size = 1;
+    thrust::device_vector<K> in_keys = bench_utils::generate.uniform.key_segments(size, 123, min_segment_size, maxi);
+    thrust::device_vector<K> out_keys(size);
+    thrust::device_vector<T> in_vals(size);
+    thrust::device_vector<T> out_vals(size);
+    return true;
   }
+  catch (const ::thrust::system::detail::bad_alloc& e)
+  {
+    return false;
+  }
+}
 
 template <typename T, typename K>
 struct unique_benchmark : public primbench::benchmark_interface
@@ -108,8 +109,7 @@ private:
 #define QUEUE_KEY(K, T, M)                                            \
   for (size_t size : bench_utils::sizes(2 * (sizeof(T) + sizeof(K)))) \
   {                                                                   \
-    CHECK_VALID(T, K, size, M)                                        \
-    if (valid)                                                        \
+    if (check_valid<T, K>(size, M))                                   \
       executor.queue<unique_benchmark<T, K>>(size, M);                \
   }
 
