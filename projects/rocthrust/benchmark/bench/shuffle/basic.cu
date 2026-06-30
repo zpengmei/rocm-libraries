@@ -52,7 +52,7 @@ struct shuffle_benchmark : public primbench::benchmark_interface
       .add("subalgo", "basic")
       .add("input_type", primbench::name<T>())
       .add("rng_engine", rng_engine)
-      .add("elements", bench_utils::format_pow2(m_items));
+      .add("elements", m_items);
   }
 
   void run(primbench::state& state) override

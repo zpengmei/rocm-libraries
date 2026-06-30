@@ -47,7 +47,7 @@ struct inclusive_scan_benchmark : public primbench::benchmark_interface
       .add("algo", "inclusive_scan")
       .add("subalgo", "sum")
       .add("input_type", primbench::name<T>())
-      .add("elements", bench_utils::format_pow2(m_items));
+      .add("elements", m_items);
   }
 
   void run(primbench::state& state) override

@@ -26,13 +26,13 @@
  *
  ******************************************************************************/
 
-// Benchmark utils
-#include "bench_utils.hpp"
-
-// rocThrust
 #include <thrust/device_vector.h>
 #include <thrust/execution_policy.h>
 #include <thrust/sort.h>
+
+#include <string>
+
+#include "bench_utils.hpp"
 
 template <typename T>
 struct sort_benchmark : public primbench::benchmark_interface
@@ -48,8 +48,8 @@ struct sort_benchmark : public primbench::benchmark_interface
       .add("algo", "sort")
       .add("subalgo", "keys_custom")
       .add("input_type", primbench::name<T>())
-      .add("elements", bench_utils::format_pow2(m_items))
-      .add("entropy", bench_utils::get_entropy_percentage(entropy_reduction));
+      .add("elements", m_items)
+      .add("entropy", std::to_string(bench_utils::get_entropy_percentage(entropy_reduction)));
   }
 
   void run(primbench::state& state) override

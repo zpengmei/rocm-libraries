@@ -50,7 +50,7 @@ struct reduce_benchmark : public primbench::benchmark_interface
       .add("subalgo", "by_key")
       .add("value_type", primbench::name<T>())
       .add("key_type", primbench::name<K>())
-      .add("elements", bench_utils::format_pow2(m_items))
+      .add("elements", m_items)
       .add("max_segment_size", max_segment_size);
   }
 

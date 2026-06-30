@@ -48,7 +48,7 @@ struct unique_benchmark : public primbench::benchmark_interface
       .add("algo", "unique")
       .add("subalgo", "basic")
       .add("input_type", primbench::name<T>())
-      .add("elements", bench_utils::format_pow2(m_items))
+      .add("elements", m_items)
       .add("max_segment_size", max_segment_size);
   }
 

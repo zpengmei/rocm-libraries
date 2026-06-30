@@ -26,14 +26,14 @@
  *
  ******************************************************************************/
 
-// Benchmark utils
-#include "bench_utils.hpp"
-
-// rocThrust
 #include <thrust/copy.h>
 #include <thrust/count.h>
 #include <thrust/device_vector.h>
 #include <thrust/execution_policy.h>
+
+#include <string>
+
+#include "bench_utils.hpp"
 
 PRIMBENCH_REGISTER_TYPE(bench_utils::large_data, "large_data")
 
@@ -62,8 +62,8 @@ struct copy_benchmark : public primbench::benchmark_interface
       .add("algo", "copy")
       .add("subalgo", "if")
       .add("input_type", primbench::name<T>())
-      .add("elements", bench_utils::format_pow2(m_items))
-      .add("entropy", bench_utils::get_entropy_percentage(entropy));
+      .add("elements", m_items)
+      .add("entropy", std::to_string(bench_utils::get_entropy_percentage(entropy)));
   }
 
   void run(primbench::state& state) override

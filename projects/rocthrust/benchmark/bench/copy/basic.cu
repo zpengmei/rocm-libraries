@@ -75,7 +75,7 @@ struct copy_benchmark : public primbench::benchmark_interface
       .add("algo", "copy")
       .add("subalgo", "basic")
       .add("input_type", primbench::name<T>())
-      .add("elements", bench_utils::format_pow2(m_items));
+      .add("elements", m_items);
   }
 
   void run(primbench::state& state) override

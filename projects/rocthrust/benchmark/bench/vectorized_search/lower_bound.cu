@@ -49,7 +49,7 @@ struct vectorized_search_benchmark : public primbench::benchmark_interface
       .add("algo", "vectorized_search")
       .add("subalgo", "lower_bound")
       .add("input_type", primbench::name<T>())
-      .add("elements", bench_utils::format_pow2(m_items))
+      .add("elements", m_items)
       .add("needles_ratio", needles_ratio);
   }
 

@@ -26,29 +26,34 @@
  *
  ******************************************************************************/
 
-#include "bench_utils.hpp"
- 
 #include <thrust/device_vector.h>
 #include <thrust/for_each.h>
+
+#include "bench_utils.hpp"
 
 template <typename T>
 struct for_each_benchmark : public primbench::benchmark_interface
 {
-  for_each_benchmark(size_t items) : m_items(items) {}
+  for_each_benchmark(size_t items)
+      : m_items(items)
+  {}
 
   primbench::json meta() const override
   {
     return primbench::json{}
       .add("algo", "for_each")
-      .add("type", primbench::name<T>())
-      .add("items", m_items);
+      .add("subalgo", "basic")
+      .add("input_type", primbench::name<T>())
+      .add("elements", m_items);
   }
 
   void run(primbench::state& state) override
   {
     thrust::device_vector<T> in(m_items, T{1});
 
-    auto op = [] __device__ (T& x) { x = x * x; };
+    auto op = [] __device__(T & x) {
+      x = x * x;
+    };
 
     bench_utils::caching_allocator_t alloc{};
     thrust::detail::device_t policy{};
@@ -73,9 +78,9 @@ private:
 int main(int argc, char* argv[])
 {
   primbench::settings settings;
-  settings.size = 1; // bench_utils::sizes() calculates it later.
+  settings.size                 = 1; // bench_utils::sizes() calculates it later.
   settings.min_gpu_ms_per_batch = 50;
-  settings.batch_window_size = 5;
+  settings.batch_window_size    = 5;
   primbench::executor executor(argc, argv, settings, primbench::flags::sync);
 
   QUEUE(int8_t)
