@@ -10,6 +10,9 @@ find_package(Python3 COMPONENTS Interpreter)
 #   provided, the suite names also gain a "_<resource>" segment so that the same
 #   target can be wired in multiple times against different resource groups
 #   without colliding on test names.
+# Optional 6th parameter: extra parser flag(s) for parse_test_categories.py (for
+#   example "--use-rtest-driver" to run the project's <stem>_rtest.py driver with
+#   -t ctest_<category> instead of invoking the gtest binary directly).
 function(apply_test_category_labels target_name yaml_file working_dir)
     # Execute the Python script to generate CMake code
     if(NOT Python3_FOUND)
@@ -46,11 +49,18 @@ function(apply_test_category_labels target_name yaml_file working_dir)
     # parent scopes when this function is called from another function.
     set(install_test_file "")
     set(resource_group "")
-    list(POP_FRONT ARGN install_test_file resource_group)
+    set(parse_extra_flags "")
+    list(POP_FRONT ARGN install_test_file resource_group parse_extra_flags)
 
     set(extra_args "")
     if(resource_group)
         list(APPEND extra_args "--resource-group" "${resource_group}")
+    endif()
+    if(NOT "${parse_extra_flags}" STREQUAL "")
+        list(APPEND extra_args "${parse_extra_flags}")
+    endif()
+    if(Python3_EXECUTABLE)
+        list(APPEND extra_args "--cmake-python3" "${Python3_EXECUTABLE}")
     endif()
     if(install_test_file)
         set(python_args ${extra_args} ${yaml_file} ${target_name} ${working_dir} ${install_test_file})
@@ -118,7 +128,11 @@ function(apply_catch2_test_category_labels target_name yaml_file working_dir)
         return()
     endif()
 
-    set(install_test_file "${ARGV3}")
+    # Use ARGN rather than ARGV<N>; unset ARGV<N> variables can fall through to
+    # parent scopes when this function is called from another function.
+    set(install_test_file "")
+    list(POP_FRONT ARGN install_test_file)
+
     if(install_test_file)
         set(python_args ${yaml_file} ${target_name} ${working_dir} ${install_test_file})
     else()
@@ -192,11 +206,11 @@ function(apply_ctest_category_labels yaml_file)
         )
     endif()
 
-    # Check if optional install_test_file parameter was provided. When
-    # given, the parser auto-detects the explicit list of test names by
-    # scanning add_test() lines already written into that file; no extra
-    # plumbing is required from the caller.
-    set(install_test_file "${ARGV1}")
+    # Use ARGN rather than ARGV<N>; unset ARGV<N> variables can fall through to
+    # parent scopes when this function is called from another function.
+    set(install_test_file "")
+    list(POP_FRONT ARGN install_test_file)
+
     if(install_test_file)
         set(python_args ${yaml_file} ${install_test_file})
     else()
