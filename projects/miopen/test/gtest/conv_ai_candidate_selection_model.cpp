@@ -903,7 +903,7 @@ std::vector<CandidateSelectionParams> GenerateCandidateSelectionParams()
          "ConvHipImplicitGemmGroupWrwXdlops",
          "DeviceGroupedConvBwdWeight_Xdl_CShuffle",
          8},
-        // 3D solvers (raw, non-engineered feature path)
+        // 3D solvers (engineered input + kernel-config path)
         {"gfx942",
          "ConvHipImplicitGemm3DGroupWrwXdlops",
          "DeviceGroupedConvBwdWeight_Xdl_CShuffle",

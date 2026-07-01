@@ -390,11 +390,65 @@ float FeatureAt(const std::map<std::string, float>& features, const std::string&
 }
 
 // True when this model targets 2D convolutions, per the spatial_dim constant in its metadata.
-// Feature engineering (input + kernel-config) is 2D-only; 3D models use raw features.
 bool IsTwoDimensional(const CandidateSelectionMetadata& metadata)
 {
     const auto spatial_dim = metadata.GetInputConstant("spatial_dim");
     return spatial_dim.has_value() && *spatial_dim == "2";
+}
+
+bool IsThreeDimensional(const CandidateSelectionMetadata& metadata)
+{
+    const auto spatial_dim = metadata.GetInputConstant("spatial_dim");
+    return spatial_dim.has_value() && *spatial_dim == "3";
+}
+
+bool UsesEngineeredInputFeatures(const CandidateSelectionMetadata& metadata)
+{
+    return IsTwoDimensional(metadata) || IsThreeDimensional(metadata);
+}
+
+bool IsCandidateSelectionCategoricalOneHot(const std::string& name)
+{
+    return name == "in_layout" || name == "fil_layout" || name == "out_layout" ||
+           name == "precision";
+}
+
+bool ShouldSkipCandidateSelectionRawInput(const CandidateSelectionMetadata& metadata,
+                                          const std::string& name)
+{
+    if(metadata.GetInputConstant(name).has_value())
+        return true;
+    if(IsCandidateSelectionCategoricalOneHot(name))
+        return true;
+    // Direction drives derived GEMM assignment only; never part of the raw passthrough block.
+    if(name == "direction")
+        return true;
+    return false;
+}
+
+float CandidateSelectionRawFeatureValue(const std::string& name,
+                                        const std::map<std::string, float>& features_by_name,
+                                        bool is_fwd)
+{
+    if(name == "in_channels")
+        return is_fwd ? FeatureAt(features_by_name, "in_channels")
+                      : FeatureAt(features_by_name, "out_channels");
+    if(name == "in_d")
+        return is_fwd ? FeatureAt(features_by_name, "in_d") : FeatureAt(features_by_name, "out_d");
+    if(name == "in_h")
+        return is_fwd ? FeatureAt(features_by_name, "in_h") : FeatureAt(features_by_name, "out_h");
+    if(name == "in_w")
+        return is_fwd ? FeatureAt(features_by_name, "in_w") : FeatureAt(features_by_name, "out_w");
+    if(name == "out_channels")
+        return is_fwd ? FeatureAt(features_by_name, "out_channels")
+                      : FeatureAt(features_by_name, "in_channels");
+    if(name == "out_d")
+        return is_fwd ? FeatureAt(features_by_name, "out_d") : FeatureAt(features_by_name, "in_d");
+    if(name == "out_h")
+        return is_fwd ? FeatureAt(features_by_name, "out_h") : FeatureAt(features_by_name, "in_h");
+    if(name == "out_w")
+        return is_fwd ? FeatureAt(features_by_name, "out_w") : FeatureAt(features_by_name, "in_w");
+    return FeatureAt(features_by_name, name);
 }
 
 } // namespace
@@ -404,9 +458,9 @@ std::vector<float>
 EngineerCandidateSelectionInputFeatures(const std::map<std::string, float>& features_by_name,
                                         const CandidateSelectionMetadata& metadata)
 {
-    // Callers gate this 2D-only path via IsTwoDimensional(metadata); no runtime spatial_dim check
-    // here so a model whose feature map omits/differs on spatial_dim still engineers correctly.
-    MIOPEN_LOG_I2("Using engineered 2d features for Candidate Selection");
+    const bool is_3d = IsThreeDimensional(metadata);
+    MIOPEN_LOG_I2("Using engineered " << (is_3d ? "3" : "2")
+                                      << "d features for Candidate Selection");
 
     // Shares the derived-feature math with ExtractTunaNetNDFeatures (ai_heuristics.cpp) via
     // common::EngineeredConvFeatures; only the input source and the omitted direction one-hot
@@ -431,7 +485,18 @@ EngineerCandidateSelectionInputFeatures(const std::map<std::string, float>& feat
         is_fwd ? FeatureAt(features_by_name, "out_w") : FeatureAt(features_by_name, "in_w"));
     const std::size_t K_h = static_cast<std::size_t>(FeatureAt(features_by_name, "fil_h"));
     const std::size_t K_w = static_cast<std::size_t>(FeatureAt(features_by_name, "fil_w"));
-    std::size_t groups    = static_cast<std::size_t>(FeatureAt(features_by_name, "group_count"));
+    std::size_t D_in = 1;
+    std::size_t D_out = 1;
+    std::size_t K_d   = 1;
+    if(is_3d)
+    {
+        D_in = static_cast<std::size_t>(
+            is_fwd ? FeatureAt(features_by_name, "in_d") : FeatureAt(features_by_name, "out_d"));
+        D_out = static_cast<std::size_t>(
+            is_fwd ? FeatureAt(features_by_name, "out_d") : FeatureAt(features_by_name, "in_d"));
+        K_d = static_cast<std::size_t>(FeatureAt(features_by_name, "fil_d"));
+    }
+    std::size_t groups = static_cast<std::size_t>(FeatureAt(features_by_name, "group_count"));
     // CU count the model was trained with, for the hardware-aware derived features.
     const std::size_t num_cu = metadata.GetNumCu();
 
@@ -487,26 +552,18 @@ EngineerCandidateSelectionInputFeatures(const std::map<std::string, float>& feat
         for(const auto bit : *one_hot)
             engineered.push_back(static_cast<float>(bit));
 
-    // Raw passthrough features.
-    const std::vector<float> raw_tail = {
-        static_cast<float>(C_in),
-        static_cast<float>(H_in),
-        static_cast<float>(W_in),
-        static_cast<float>(C_out),
-        static_cast<float>(H_out),
-        static_cast<float>(W_out),
-        static_cast<float>(K_h),
-        static_cast<float>(K_w),
-        FeatureAt(features_by_name, "pad_h"),
-        FeatureAt(features_by_name, "pad_w"),
-        FeatureAt(features_by_name, "conv_stride_h"),
-        FeatureAt(features_by_name, "conv_stride_w"),
-        FeatureAt(features_by_name, "dilation_h"),
-        FeatureAt(features_by_name, "dilation_w"),
-        FeatureAt(features_by_name, "batchsize"),
-        FeatureAt(features_by_name, "group_count"),
-    };
-    engineered.insert(engineered.end(), raw_tail.begin(), raw_tail.end());
+    // Raw numerics follow metadata input_params order; constants and categoricals are handled
+    // separately. Parameters removed during training (e.g. dilation_* for MI355_3d) are absent
+    // from input_params and are not appended here.
+    std::size_t raw_count = 0;
+    for(const auto& feature_name : metadata.input_params())
+    {
+        if(ShouldSkipCandidateSelectionRawInput(metadata, feature_name))
+            continue;
+        engineered.push_back(
+            CandidateSelectionRawFeatureValue(feature_name, features_by_name, is_fwd));
+        ++raw_count;
+    }
 
     // Derived feature block (shared with the TunaNet path). Dimensions above are normalized to the
     // forward (driver) convention; the GEMM assignment is selected by the actual direction. The
@@ -514,12 +571,29 @@ EngineerCandidateSelectionInputFeatures(const std::map<std::string, float>& feat
     const auto gemm_dir = direction_code == 0.0f   ? common::ConvDirection::Forward
                           : direction_code == 1.0f ? common::ConvDirection::BackwardData
                                                    : common::ConvDirection::BackwardWeights;
-    const auto derived  = common::EngineeredConvFeatures(
-        N, C_in, C_out, H_in, W_in, H_out, W_out, K_h, K_w, groups, num_cu, gemm_dir);
+    const auto derived =
+        is_3d ? common::EngineeredConvFeatures(N,
+                                               C_in,
+                                               C_out,
+                                               H_in,
+                                               W_in,
+                                               H_out,
+                                               W_out,
+                                               K_h,
+                                               K_w,
+                                               groups,
+                                               num_cu,
+                                               gemm_dir,
+                                               3,
+                                               D_in,
+                                               D_out,
+                                               K_d)
+              : common::EngineeredConvFeatures(
+                    N, C_in, C_out, H_in, W_in, H_out, W_out, K_h, K_w, groups, num_cu, gemm_dir);
     engineered.insert(engineered.end(), derived.begin(), derived.end());
 
     const std::size_t expected_size = in_layout.size() + fil_layout.size() + out_layout.size() +
-                                      precision.size() + raw_tail.size() + derived.size();
+                                      precision.size() + raw_count + derived.size();
     if(engineered.size() != expected_size)
     {
         MIOPEN_THROW("EngineerCandidateSelectionInputFeatures: expected " +
@@ -756,10 +830,9 @@ CandidateSelectionModel::EncodeInputFeatures(const std::map<std::string, float>&
         }
     }
 
-    // Feature engineering is a 2D-only path: the 2D models expect the engineered input vector,
-    // while the 3D models still consume the raw (filtered) features as-is. The per-model
-    // dimensionality is declared by the spatial_dim constant in the metadata.
-    if(IsTwoDimensional(metadata_))
+    // Engineered input path for 2D/3D models (spatial_dim constant in metadata). Other models
+    // consume the raw filtered features as-is.
+    if(UsesEngineeredInputFeatures(metadata_))
     {
         const auto engineered_features =
             EngineerCandidateSelectionInputFeatures(features, metadata_);
@@ -772,9 +845,8 @@ MIOPEN_INTERNALS_EXPORT
 std::vector<std::vector<float>> CandidateSelectionModel::EncodeKernelConfigs(
     const std::vector<std::vector<float>>& encoded_candidates) const
 {
-    // 2D-only feature engineering (see EncodeInputFeatures). 3D models consume the raw
-    // metadata-ordered encoded candidates directly.
-    if(!IsTwoDimensional(metadata_))
+    // Engineered kernel-config path for 2D/3D models (see EncodeInputFeatures).
+    if(!UsesEngineeredInputFeatures(metadata_))
         return EncodeKernelConfigsWithFdeep(encoded_candidates, arch_, solver_);
 
     // active_params and the output dim are metadata-derived (candidate-independent), so derive them
