@@ -34,6 +34,8 @@
 #include "stinkytofu/Export.hpp"
 
 namespace stinkytofu {
+class StinkyInstruction;
+
 // Enum for selecting high or low 16 bits in True16 instructions
 enum class HighBitSel : int { NONE = -1, LOW = 0, HIGH = 1 };
 
@@ -294,6 +296,7 @@ struct Modifier {
         MATRIX_FMT,
         MEM_TOKEN,
         WMMA_POOL_INDEX,
+        EXEC_GROUP,
     };
 
     Modifier(Type type) : type(type) {}
@@ -1044,6 +1047,16 @@ struct WmmaPoolData : public TypedModifier<WmmaPoolData> {
     uint32_t poolIndex = 0;
 
     explicit WmmaPoolData(uint32_t idx) : TypedModifier<WmmaPoolData>(), poolIndex(idx) {}
+};
+
+/// Non-owning. See docs/developer/exec-mask-grouping.md.
+struct ExecGroupData : public TypedModifier<ExecGroupData> {
+    static constexpr Modifier::Type Type = Modifier::Type::EXEC_GROUP;
+
+    std::vector<StinkyInstruction*> children;
+
+    explicit ExecGroupData(std::vector<StinkyInstruction*> children)
+        : TypedModifier<ExecGroupData>(), children(std::move(children)) {}
 };
 
 }  // namespace stinkytofu

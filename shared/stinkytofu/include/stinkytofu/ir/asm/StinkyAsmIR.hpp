@@ -296,6 +296,14 @@ class STINKYTOFU_EXPORT AsmIRBuilder : public IRBuilder {
         return create(&fenceMCID);
     }
 
+    /// See docs/developer/exec-mask-grouping.md. Own descriptor carries no
+    /// IF_HasSideEffect; hasSideEffect() below still inherits it from children.
+    StinkyInstruction* createExecMaskGroup(IRBase* insertBefore) {
+        static const HwInstDesc execGroupMCID{GFX::EXEC_GROUP, GFX::EXEC_GROUP, 0, 0, 0,
+                                              "EXEC_GROUP",    makeFlagSet({})};
+        return create(&execGroupMCID, insertBefore);
+    }
+
     /// Creates and inserts a PHI instruction at the beginning of the block.
     /// The PHI defines one DWORD register and has one placeholder srcReg per
     /// predecessor. sources and users are NOT initialized — the caller
@@ -381,6 +389,11 @@ inline bool isBufferMemStore(const StinkyInstruction& inst) {
 /// Fences emit no assembly but carry MemTokenData ordering constraints.
 inline bool isFence(const StinkyInstruction& inst) {
     return inst.getUnifiedOpcode() == GFX::FENCE;
+}
+
+/// See docs/developer/exec-mask-grouping.md.
+inline bool isExecMaskGroup(const StinkyInstruction& inst) {
+    return inst.getUnifiedOpcode() == GFX::EXEC_GROUP;
 }
 
 /// Check if instruction is a pseudo instruction (LABEL, PHI, or FENCE) that should be
@@ -587,6 +600,12 @@ inline bool hasSideEffect(const StinkyInstruction& inst) {
     if ((isBarrier(inst) || isTensorLoad(inst) || isDSRead(inst) || isDSWrite(inst)) &&
         !hasLdsPseudoRegs(inst))
         return true;
+    if (isExecMaskGroup(inst)) {
+        if (const auto* groupData = inst.getModifier<ExecGroupData>()) {
+            for (const StinkyInstruction* child : groupData->children)
+                if (hasSideEffect(*child)) return true;
+        }
+    }
     return false;
 }
 
