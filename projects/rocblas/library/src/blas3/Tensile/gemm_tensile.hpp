@@ -186,9 +186,35 @@ inline rocblas_status rocblas_call_tensile(rocblas_handle     handle,
             = (max_stride > 0 && max_stride * bytes_per_element > 0)
                   ? std::max(int64_t(1), overflow_limit_2_to_31 / (max_stride * bytes_per_element))
                   : int64_t(k);
-        // Only chunk if needed (when k would overflow)
+
+        // ROCBLAS_DISABLE_K_CHUNKING=1 disables the host-side K split above. It is only
+        // honored when the hipBLASLt backend (whose kernels compute offsets in 64-bit and
+        // set Use64bShadowLimit) will actually run, so the Tensile-native path always keeps
+        // its 32-bit overflow protection. The eligibility test mirrors useHipBLASLt()
+        // (see tensile_host.cpp): this overload constructs its problem with strided_batch=true,
+        // hence batched = !strided_batch = false below.
+        static const bool disable_k_chunking_env = [] {
+            const char* env = getenv("ROCBLAS_DISABLE_K_CHUNKING");
+            return env && env[0] != '0';
+        }();
+        bool disable_k_chunking = false;
+#ifdef BUILD_WITH_HIPBLASLT
+        if(disable_k_chunking_env)
+        {
+            bool hipblaslt_will_run = handle->tryHipBLASLt(/*batched=*/false);
+            if constexpr(sizeof(Ti) >= 4)
+            {
+                if(handle->getArch() == 950 && !handle->isHipBLASLtForcedOn())
+                    hipblaslt_will_run = false;
+            }
+            disable_k_chunking = hipblaslt_will_run;
+        }
+#endif
+
+        // Only chunk if needed (when k would overflow) and not explicitly disabled
         // Ensure k_chunk >= 1 to avoid infinite loop when k=0
-        int64_t k_chunk = (safe_k >= k) ? std::max(int64_t(k), int64_t(1)) : safe_k;
+        int64_t k_chunk = (disable_k_chunking || safe_k >= k) ? std::max(int64_t(k), int64_t(1))
+                                                              : safe_k;
 
         Tc beta_val = *beta;
         Tc one_val  = static_cast<Tc>(1);
