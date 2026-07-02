@@ -40,9 +40,9 @@ struct equal_benchmark : public primbench::benchmark_interface
 
     thrust::fill(policy(alloc), out.begin() + same_elements, out.end(), T{2});
 
-    state.set_items(m_items);
-    state.add_reads<T>(m_items);
-    state.add_writes<T>(m_items);
+    state.set_items(std::max(same_elements, std::size_t(1)));
+    state.add_reads<T>(std::max(same_elements, std::size_t(1)));
+    state.add_writes<T>(std::max(same_elements, std::size_t(1)));
 
     state.run([&] {
       thrust::equal(policy(alloc), in.begin(), in.end(), out.begin());

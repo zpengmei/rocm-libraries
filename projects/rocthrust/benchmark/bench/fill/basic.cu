@@ -60,7 +60,6 @@ struct fill_benchmark : public primbench::benchmark_interface
     thrust::device_vector<T> out(m_items);
 
     state.set_items(m_items);
-    state.add_reads<T>(m_items);
     state.add_writes<T>(m_items);
 
     state.run([&] {
