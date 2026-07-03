@@ -599,6 +599,7 @@ defaultBenchmarkCommonParameters = [
     {"UsePLRPack": [0]},
     {"TDMInst": [0]},
     {"TDMSplit": [False]},
+    {"TDMStoreEdge": [False]},
     {"MXScaleFormat": ["Auto"]},
     {"MXLoadInst": ["Auto"]},
     # SwInstructionPrefetch — True: reserve one scratch SGPR so StinkyTofu can insert software

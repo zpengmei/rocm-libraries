@@ -41,6 +41,7 @@ from rocisa.functions import vectorStaticDivide, vectorStaticRemainder, vectorUI
 from rocisa.enum import InstType, SelectBit, CacheScope, HighBitSel, TemporalHint, NonVolatile
 from rocisa.macro import MacroVMagicDiv, PseudoRandomGenerator
 from . import CUSTOM_KERNEL_PATH
+from rocisa.instruction import TensorStoreFromLds, SWaitTensorcnt
 from rocisa.instruction import BranchInstruction, BufferLoadB128, BufferLoadB32, \
   BufferLoadB16, BufferLoadU16, BufferLoadB64, BufferLoadB96, BufferLoadD16B16, BufferLoadD16HIB16, BufferLoadD16HIU8, \
   BufferLoadD16U8, BufferStoreB128, BufferStoreB16, BufferStoreB32, BufferStoreB64, \
@@ -13905,6 +13906,31 @@ class KernelWriterAssembly(KernelWriter):
   ##############################################################################
   def storeRemapAddStore(self, kernel, tmpVgpr, tmpS01, edge, StoreRemapLastBatch):
     module = Module("storeRemapAddStore")
+
+    # ==== TDMStoreEdge: native-OOB TDM store (reuse storeRemap LDS staging) ====
+    # UNVERIFIED numeric correctness (pending GPU). Bitfields per amd_gfx1250_TDM.h.
+    if kernel.get("TDMStoreEdge") and edge:
+      module.add(SWaitCnt(dscnt=0, comment="TDMStoreEdge: wait LDS writes"))
+      module.add(SBarrier(comment="TDMStoreEdge: all waves LDS staged"))
+      strideD1 = "StrideD%s" % (self.states.indexChars[kernel["PackedC1IndicesX"][0]])
+      with self.allocTmpSgpr(12, alignment=4, tag="tdmDStoreDesc") as descS:
+        g0 = descS.idx; g1 = g0 + 4
+        for k in range(12): module.add(SMovB32(dst=sgpr(g0+k), src=0, comment="zero D# dword"))
+        module.add(SMovB32(dst=sgpr(g0+0), src=hex(0x1 | (1<<3)), comment="D#G0.dw0: m_count=1 | m_is_store(bit3)"))
+        module.add(SMovB32(dst=sgpr(g0+1), src=0, comment="D#G0.dw1: lds_addr base (TODO storeRemap LDS base)"))
+        module.add(SMovB64(dst=sgpr(g0+2,2), src=sgpr("AddressD",2), comment="D#G0.dw2/3: global addr = AddressD"))
+        module.add(SOrB32(dst=sgpr(g0+3), src0=sgpr(g0+3), src1=hex(2<<30), comment="D#G0.dw3: m_type=2 (image)"))
+        module.add(SMovB32(dst=sgpr(g1+0), src=hex(1<<16), comment="D#G1.dw0: m_data_size=1 (bf16) bits[17:16]"))
+        with self.allocTmpSgpr(1, tag="tdmDS_t") as t:
+          ti = t.idx
+          module.add(SLShiftLeftB32(dst=sgpr(ti), shiftHex=hex(16), src=sgpr("SizeJ"), comment="tdim0(N) lo")); module.add(SOrB32(dst=sgpr(g1+1), src0=sgpr(g1+1), src1=sgpr(ti)))
+          module.add(SLShiftRightB32(dst=sgpr(ti), shiftHex=hex(16), src=sgpr("SizeJ"), comment="tdim0(N) hi")); module.add(SOrB32(dst=sgpr(g1+2), src0=sgpr(g1+2), src1=sgpr(ti)))
+          module.add(SLShiftLeftB32(dst=sgpr(ti), shiftHex=hex(16), src=sgpr("SizeI"), comment="tdim1(M) lo")); module.add(SOrB32(dst=sgpr(g1+2), src0=sgpr(g1+2), src1=sgpr(ti)))
+          module.add(SLShiftRightB32(dst=sgpr(ti), shiftHex=hex(16), src=sgpr("SizeI"), comment="tdim1(M) hi")); module.add(SOrB32(dst=sgpr(g1+3), src0=sgpr(g1+3), src1=sgpr(ti)))
+        module.add(SMovB32(dst=sgpr(g1+5), src=sgpr(strideD1), comment="D#G1.dw5: tensor_dim0_stride = StrideD (TODO bpe scale)"))
+        module.add(TensorStoreFromLds(sgpr(g0,4), sgpr(g1,8), None, None, "TDM store D (edge, native OOB via tensor_dim)"))
+        module.add(SWaitTensorcnt(tensorcnt=0, comment="wait TDM store"))
+      return module, 1
 
     module.add(SWaitCnt(dscnt=0, comment="wait for LDS write"))
 
