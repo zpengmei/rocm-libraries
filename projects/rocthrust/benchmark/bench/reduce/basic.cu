@@ -58,8 +58,7 @@ struct reduce_benchmark : public primbench::benchmark_interface
     thrust::device_vector<T> in = bench_utils::generate(m_items, state.seed);
 
     state.set_items(m_items);
-    state.add_reads<T>(m_items);
-    state.add_writes<T>(m_items);
+    state.add_reads<T>(m_items + 1);
 
     state.run([&] {
       thrust::reduce(policy(alloc), in.begin(), in.end());
