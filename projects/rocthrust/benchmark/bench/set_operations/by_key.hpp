@@ -91,10 +91,13 @@ struct by_key_set_benchmark : public primbench::benchmark_interface
       out_vals.begin());
 
     const size_t item_in_AB = thrust::distance(out_keys.begin(), result_ends.first);
+    const size_t values_read = OpT::read_all_values ? m_items : items_in_A;
 
     state.set_items(m_items);
-    state.add_reads<T>(m_items);
+    state.add_reads<T>(values_read);
+    state.add_reads<K>(m_items);
     state.add_writes<T>(item_in_AB);
+    state.add_writes<K>(item_in_AB);
 
     state.run([&] {
       op(policy(alloc),
