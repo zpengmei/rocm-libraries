@@ -525,7 +525,7 @@ TEST_P(GPU_ConvNDAIHeuristics_FP32, ExtractTunaNet3dFeaturesGolden)
     ASSERT_TRUE(metadata.IsValid());
 
     // Smoke shape from ConvHipImplicitGemm3DGroupFwdXdlops unit tests (NCDHW, FP16).
-    const auto problem = Create3DProblem(64,
+    const auto problem  = Create3DProblem(64,
                                          32,
                                          28,
                                          28,
@@ -565,28 +565,9 @@ TEST_P(GPU_ConvNDAIHeuristics_FP32, ExtractTunaNet3dFeaturesGolden)
     append_one_hot(metadata.EncodeDirection(problem.GetDirection()),
                    metadata.GetDirectionClassCount());
 
-    const std::vector<float> raw = {32.0f,
-                                    28.0f,
-                                    28.0f,
-                                    28.0f,
-                                    32.0f,
-                                    28.0f,
-                                    28.0f,
-                                    28.0f,
-                                    3.0f,
-                                    3.0f,
-                                    3.0f,
-                                    1.0f,
-                                    1.0f,
-                                    1.0f,
-                                    1.0f,
-                                    1.0f,
-                                    1.0f,
-                                    1.0f,
-                                    1.0f,
-                                    1.0f,
-                                    64.0f,
-                                    1.0f};
+    const std::vector<float> raw = {32.0f, 28.0f, 28.0f, 28.0f, 32.0f, 28.0f, 28.0f, 28.0f,
+                                    3.0f,  3.0f,  3.0f,  1.0f,  1.0f,  1.0f,  1.0f,  1.0f,
+                                    1.0f,  1.0f,  1.0f,  1.0f,  64.0f, 1.0f};
     expected.insert(expected.end(), raw.begin(), raw.end());
 
     const auto derived = common::EngineeredConvFeatures(64,

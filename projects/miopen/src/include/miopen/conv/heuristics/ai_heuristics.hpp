@@ -91,10 +91,10 @@ MIOPEN_INTERNALS_EXPORT std::vector<float> EngineeredConvFeatures(std::size_t N,
                                                                   std::size_t groups,
                                                                   std::size_t num_cu,
                                                                   ConvDirection direction,
-                                                                  int spatial_dim     = 2,
-                                                                  std::size_t D_in    = 1,
-                                                                  std::size_t D_out   = 1,
-                                                                  std::size_t K_d     = 1);
+                                                                  int spatial_dim   = 2,
+                                                                  std::size_t D_in  = 1,
+                                                                  std::size_t D_out = 1,
+                                                                  std::size_t K_d   = 1);
 
 /**
  * @brief Load JSON from file path
@@ -417,8 +417,11 @@ MIOPEN_INTERNALS_EXPORT std::unique_ptr<ModelND> GetNDModel(const std::string& d
 /// (layouts, precision, direction) sized from the metadata encodings, raw passthrough features, and
 /// the shared common::EngineeredConvFeatures derived block. isFwd selects the channel/spatial
 /// orientation. spatial_dim defaults to 0 (infer from problem). Exported for golden testing.
-MIOPEN_INTERNALS_EXPORT std::vector<float> ExtractTunaNetNDFeatures(
-    const conv::ProblemDescription& problem, bool isFwd, const MetadataND& metadata, int spatial_dim = 0);
+MIOPEN_INTERNALS_EXPORT std::vector<float>
+ExtractTunaNetNDFeatures(const conv::ProblemDescription& problem,
+                         bool isFwd,
+                         const MetadataND& metadata,
+                         int spatial_dim = 0);
 
 } // namespace immed_mode
 

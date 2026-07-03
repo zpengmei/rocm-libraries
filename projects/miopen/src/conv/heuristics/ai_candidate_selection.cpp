@@ -453,9 +453,9 @@ float CandidateSelectionRawFeatureValue(const std::string& name,
     return FeatureAt(features_by_name, name);
 }
 
-std::vector<float> ExtractCandidateSelectionRawInput(
-    const std::map<std::string, float>& features_by_name,
-    const CandidateSelectionMetadata& metadata)
+std::vector<float>
+ExtractCandidateSelectionRawInput(const std::map<std::string, float>& features_by_name,
+                                  const CandidateSelectionMetadata& metadata)
 {
     const float direction_code = FeatureAt(features_by_name, "direction");
     const bool is_fwd          = direction_code == 0.0f;
@@ -465,8 +465,7 @@ std::vector<float> ExtractCandidateSelectionRawInput(
     {
         if(ShouldSkipCandidateSelectionRawInput(metadata, feature_name))
             continue;
-        raw.push_back(
-            CandidateSelectionRawFeatureValue(feature_name, features_by_name, is_fwd));
+        raw.push_back(CandidateSelectionRawFeatureValue(feature_name, features_by_name, is_fwd));
     }
     return raw;
 }
@@ -505,16 +504,16 @@ EngineerCandidateSelectionInputFeatures(const std::map<std::string, float>& feat
         is_fwd ? FeatureAt(features_by_name, "out_w") : FeatureAt(features_by_name, "in_w"));
     const std::size_t K_h = static_cast<std::size_t>(FeatureAt(features_by_name, "fil_h"));
     const std::size_t K_w = static_cast<std::size_t>(FeatureAt(features_by_name, "fil_w"));
-    std::size_t D_in = 1;
-    std::size_t D_out = 1;
-    std::size_t K_d   = 1;
+    std::size_t D_in      = 1;
+    std::size_t D_out     = 1;
+    std::size_t K_d       = 1;
     if(is_3d)
     {
-        D_in = static_cast<std::size_t>(
-            is_fwd ? FeatureAt(features_by_name, "in_d") : FeatureAt(features_by_name, "out_d"));
-        D_out = static_cast<std::size_t>(
-            is_fwd ? FeatureAt(features_by_name, "out_d") : FeatureAt(features_by_name, "in_d"));
-        K_d = static_cast<std::size_t>(FeatureAt(features_by_name, "fil_d"));
+        D_in  = static_cast<std::size_t>(is_fwd ? FeatureAt(features_by_name, "in_d")
+                                               : FeatureAt(features_by_name, "out_d"));
+        D_out = static_cast<std::size_t>(is_fwd ? FeatureAt(features_by_name, "out_d")
+                                                : FeatureAt(features_by_name, "in_d"));
+        K_d   = static_cast<std::size_t>(FeatureAt(features_by_name, "fil_d"));
     }
     std::size_t groups = static_cast<std::size_t>(FeatureAt(features_by_name, "group_count"));
     // CU count the model was trained with, for the hardware-aware derived features.
@@ -654,8 +653,8 @@ void LogConfigEncoderBlock(std::size_t index,
     if(!miopen::IsLogging(miopen::LoggingLevel::Info))
         return;
 
-    MIOPEN_LOG_I("ConfigEncoder candidate "
-                 << index << " " << CandidateKernelLabel(index, candidate_kernel_names));
+    MIOPEN_LOG_I("ConfigEncoder candidate " << index << " "
+                                            << CandidateKernelLabel(index, candidate_kernel_names));
     MIOPEN_LOG_I("ConfigEncoder RAW: [" << JoinFloats(raw_active) << "]");
     if(engineered != nullptr)
         MIOPEN_LOG_I("ConfigEncoder features: [" << JoinFloats(*engineered) << "]");
@@ -930,7 +929,7 @@ std::vector<std::vector<float>> CandidateSelectionModel::EncodeKernelConfigs(
     for(std::size_t i = 0; i < encoded_candidates.size(); ++i)
     {
         const auto& raw_active = encoded_candidates[i];
-        auto engineered = EngineerKernelConfigFeaturesImpl(
+        auto engineered        = EngineerKernelConfigFeaturesImpl(
             raw_active, metadata_, active_params, expected_output_dim);
         LogConfigEncoderBlock(i, candidate_kernel_names, raw_active, &engineered);
         engineered_candidates.push_back(std::move(engineered));

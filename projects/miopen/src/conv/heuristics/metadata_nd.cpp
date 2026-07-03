@@ -419,9 +419,8 @@ size_t MetadataND::GetEngineeredNumInputs() const
     if(!is_valid)
         return 0;
 
-    size_t count = GetInLayoutClassCount() + GetFilLayoutClassCount() +
-                   GetOutLayoutClassCount() + GetPrecisionClassCount() +
-                   GetDirectionClassCount();
+    size_t count = GetInLayoutClassCount() + GetFilLayoutClassCount() + GetOutLayoutClassCount() +
+                   GetPrecisionClassCount() + GetDirectionClassCount();
     for(const auto& feature : features)
     {
         if(!IsTunaNetCategoricalFeature(feature))
