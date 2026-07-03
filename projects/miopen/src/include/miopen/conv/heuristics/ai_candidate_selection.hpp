@@ -176,7 +176,8 @@ public:
     MIOPEN_INTERNALS_EXPORT std::vector<float>
     EncodeInputFeatures(const std::map<std::string, float>& features) const;
     MIOPEN_INTERNALS_EXPORT std::vector<std::vector<float>>
-    EncodeKernelConfigs(const std::vector<std::vector<float>>& encoded_candidates) const;
+    EncodeKernelConfigs(const std::vector<std::vector<float>>& encoded_candidates,
+                        const std::vector<std::string>* candidate_kernel_names = nullptr) const;
     MIOPEN_INTERNALS_EXPORT std::vector<std::pair<int, float>>
     SelectBestCandidateIndices(const std::vector<float>& encoded_features,
                                const std::vector<std::vector<float>>& encoded_configs) const;

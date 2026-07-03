@@ -34,6 +34,7 @@
 #include <nlohmann/json.hpp>
 #include <miopen/filesystem.hpp>
 #include <miopen/conv/heuristics/ai_heuristics.hpp>
+#include <miopen/logger.hpp>
 #include <miopen/stringutils.hpp>
 #include <algorithm>
 #include <vector>
@@ -45,6 +46,7 @@
 #include <mutex>
 #include <stdexcept>
 #include <cmath>
+#include <sstream>
 
 #if MIOPEN_ENABLE_AI_KERNEL_TUNING
 namespace miopen {
@@ -451,6 +453,24 @@ float CandidateSelectionRawFeatureValue(const std::string& name,
     return FeatureAt(features_by_name, name);
 }
 
+std::vector<float> ExtractCandidateSelectionRawInput(
+    const std::map<std::string, float>& features_by_name,
+    const CandidateSelectionMetadata& metadata)
+{
+    const float direction_code = FeatureAt(features_by_name, "direction");
+    const bool is_fwd          = direction_code == 0.0f;
+
+    std::vector<float> raw;
+    for(const auto& feature_name : metadata.input_params())
+    {
+        if(ShouldSkipCandidateSelectionRawInput(metadata, feature_name))
+            continue;
+        raw.push_back(
+            CandidateSelectionRawFeatureValue(feature_name, features_by_name, is_fwd));
+    }
+    return raw;
+}
+
 } // namespace
 
 MIOPEN_INTERNALS_EXPORT
@@ -606,6 +626,51 @@ EngineerCandidateSelectionInputFeatures(const std::map<std::string, float>& feat
 
 namespace {
 
+std::string JoinFloats(const std::vector<float>& values)
+{
+    std::ostringstream ss;
+    for(std::size_t i = 0; i < values.size(); ++i)
+    {
+        if(i > 0)
+            ss << ", ";
+        ss << values[i];
+    }
+    return ss.str();
+}
+
+const char* CandidateKernelLabel(std::size_t index,
+                                 const std::vector<std::string>* candidate_kernel_names)
+{
+    if(candidate_kernel_names != nullptr && index < candidate_kernel_names->size())
+        return candidate_kernel_names->at(index).c_str();
+    return "";
+}
+
+void LogConfigEncoderBlock(std::size_t index,
+                           const std::vector<std::string>* candidate_kernel_names,
+                           const std::vector<float>& raw_active,
+                           const std::vector<float>* engineered = nullptr)
+{
+    if(!miopen::IsLogging(miopen::LoggingLevel::Info))
+        return;
+
+    MIOPEN_LOG_I("ConfigEncoder candidate "
+                 << index << " " << CandidateKernelLabel(index, candidate_kernel_names));
+    MIOPEN_LOG_I("ConfigEncoder RAW: [" << JoinFloats(raw_active) << "]");
+    if(engineered != nullptr)
+        MIOPEN_LOG_I("ConfigEncoder features: [" << JoinFloats(*engineered) << "]");
+}
+
+void LogInputEncoderBlock(const std::vector<float>& raw_active,
+                          const std::vector<float>& engineered)
+{
+    if(!miopen::IsLogging(miopen::LoggingLevel::Info))
+        return;
+
+    MIOPEN_LOG_I("InputEncoder RAW: [" << JoinFloats(raw_active) << "]");
+    MIOPEN_LOG_I("InputEncoder features: [" << JoinFloats(engineered) << "]");
+}
+
 std::vector<std::string> ActiveOutputParams(const CandidateSelectionMetadata& metadata)
 {
     std::vector<std::string> active;
@@ -745,10 +810,8 @@ std::vector<float> EngineerKernelConfigFeaturesImpl(const std::vector<float>& ra
     const float k_per_block = safe_param("KPerBlock");
     const float m_per_xdl   = safe_param("MPerXDL");
     const float n_per_xdl   = safe_param("NPerXDL");
-    // MXdlPerWave / NXdlPerWave use the raw value (not the missing->1 clamp the others use), to
-    // match the trained feature definitions: a missing value stays as the missing token here.
-    const float m_xdl_wave  = get_param("MXdlPerWave");
-    const float n_xdl_wave  = get_param("NXdlPerWave");
+    const float m_xdl_wave  = safe_param("MXdlPerWave");
+    const float n_xdl_wave  = safe_param("NXdlPerWave");
     const float a_block_vec = safe_param("ABlockTransferSrcScalarPerVector");
     const float b_block_vec = safe_param("BBlockTransferSrcScalarPerVector");
 
@@ -834,8 +897,10 @@ CandidateSelectionModel::EncodeInputFeatures(const std::map<std::string, float>&
     // consume the raw filtered features as-is.
     if(UsesEngineeredInputFeatures(metadata_))
     {
+        const auto raw_active = ExtractCandidateSelectionRawInput(features, metadata_);
         const auto engineered_features =
             EngineerCandidateSelectionInputFeatures(features, metadata_);
+        LogInputEncoderBlock(raw_active, engineered_features);
         return EncodeInputFeaturesWithFdeep(engineered_features, arch_, solver_);
     }
     return EncodeInputFeaturesWithFdeep(filtered_features, arch_, solver_);
@@ -843,11 +908,16 @@ CandidateSelectionModel::EncodeInputFeatures(const std::map<std::string, float>&
 
 MIOPEN_INTERNALS_EXPORT
 std::vector<std::vector<float>> CandidateSelectionModel::EncodeKernelConfigs(
-    const std::vector<std::vector<float>>& encoded_candidates) const
+    const std::vector<std::vector<float>>& encoded_candidates,
+    const std::vector<std::string>* candidate_kernel_names) const
 {
     // Engineered kernel-config path for 2D/3D models (see EncodeInputFeatures).
     if(!UsesEngineeredInputFeatures(metadata_))
+    {
+        for(std::size_t i = 0; i < encoded_candidates.size(); ++i)
+            LogConfigEncoderBlock(i, candidate_kernel_names, encoded_candidates[i]);
         return EncodeKernelConfigsWithFdeep(encoded_candidates, arch_, solver_);
+    }
 
     // active_params and the output dim are metadata-derived (candidate-independent), so derive them
     // once here rather than per candidate inside the loop.
@@ -857,10 +927,13 @@ std::vector<std::vector<float>> CandidateSelectionModel::EncodeKernelConfigs(
 
     std::vector<std::vector<float>> engineered_candidates;
     engineered_candidates.reserve(encoded_candidates.size());
-    for(const auto& candidate : encoded_candidates)
+    for(std::size_t i = 0; i < encoded_candidates.size(); ++i)
     {
-        engineered_candidates.push_back(EngineerKernelConfigFeaturesImpl(
-            candidate, metadata_, active_params, expected_output_dim));
+        const auto& raw_active = encoded_candidates[i];
+        auto engineered = EngineerKernelConfigFeaturesImpl(
+            raw_active, metadata_, active_params, expected_output_dim);
+        LogConfigEncoderBlock(i, candidate_kernel_names, raw_active, &engineered);
+        engineered_candidates.push_back(std::move(engineered));
     }
     return EncodeKernelConfigsWithFdeep(engineered_candidates, arch_, solver_);
 }
@@ -891,6 +964,7 @@ std::vector<std::pair<int, float>> CandidateSelectionModel::SelectBestCandidateI
         float score = std::inner_product(
             encoded_configs[i].begin(), encoded_configs[i].end(), encoded_features.begin(), 0.0f);
         scored_candidates.emplace_back(static_cast<int>(i), score);
+        MIOPEN_LOG_I("ConfigEncoder score: candidate " << i << " = " << score);
     }
 
     // Check if all scores are NaN (all candidates unsupported)
@@ -1435,7 +1509,14 @@ ModelSelectBestCandidate(const std::string& arch,
                 << "]";
             MIOPEN_LOG_I2(encoded_features_log.str());
         }
-        const auto& encoded_configs = model.EncodeKernelConfigs(encoded_candidates);
+
+        std::vector<std::string> candidate_kernel_names;
+        candidate_kernel_names.reserve(expanded_params.size());
+        for(const auto& candidate : expanded_params)
+            candidate_kernel_names.push_back(candidate.empty() ? std::string{} : candidate.front());
+
+        const auto& encoded_configs =
+            model.EncodeKernelConfigs(encoded_candidates, &candidate_kernel_names);
         {
             std::ostringstream encoded_configs_log;
             encoded_configs_log << "Encoded configs: [";
@@ -1453,7 +1534,20 @@ ModelSelectBestCandidate(const std::string& arch,
         // Get all candidates sorted by score (best to worst)
         auto scored_candidates =
             model.SelectBestCandidateIndices(encoded_features, encoded_configs);
-        ;
+
+        if(miopen::IsLogging(miopen::LoggingLevel::Info))
+        {
+            for(const auto& [candidate_idx, score] : scored_candidates)
+            {
+                const char* kernel_name =
+                    (candidate_idx >= 0 &&
+                     static_cast<std::size_t>(candidate_idx) < candidate_kernel_names.size())
+                        ? candidate_kernel_names[static_cast<std::size_t>(candidate_idx)].c_str()
+                        : "";
+                MIOPEN_LOG_I("ConfigEncoder ranked: candidate "
+                             << candidate_idx << " " << kernel_name << " score=" << score);
+            }
+        }
 
         CandidateSelectionResult result;
         result.kernel_indices.reserve(scored_candidates.size());
