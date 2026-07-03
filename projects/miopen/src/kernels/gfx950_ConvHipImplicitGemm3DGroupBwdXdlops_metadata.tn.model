@@ -1,5 +1,5 @@
 {
-    "generated_on": "01 Jul 2026, 06:41:02",
+    "generated_on": "03 Jul 2026, 13:59:53",
     "gpu": {
         "num_cu": 256,
         "arch": "gfx950"
@@ -111,7 +111,16 @@
             "15": "020_CShuffleNRepeatPerShuffle"
         }
     },
-    "conditional_layouts": {},
+    "conditional_layouts": {
+        "DeviceGroupedConvBwdDataMultipleD_Xdl_CShuffle_v1": {
+            "base_param_count": 15,
+            "conditional_params": {
+                "SplitK": {
+                    "kind": "appended_suffix"
+                }
+            }
+        }
+    },
     "split_k_values": [],
     "input_params": [
         "spatial_dim",
