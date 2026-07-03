@@ -3,6 +3,54 @@
 # Find Python3 for running the parser script
 find_package(Python3 COMPONENTS Interpreter)
 
+# Validate target_name, yaml_file, and working_dir for apply_test_category_labels.
+function(_ctest_validate_gtest_category_label_args target_name yaml_file working_dir out_ok)
+    set(_ok TRUE)
+    if("${target_name}" STREQUAL "")
+        message(WARNING "target_name is empty, cannot generate test categories")
+        set(_ok FALSE)
+    endif()
+    if(NOT EXISTS "${yaml_file}")
+        message(WARNING "Test categories YAML file not found: ${yaml_file}")
+        set(_ok FALSE)
+    endif()
+    if(NOT IS_DIRECTORY "${working_dir}")
+        message(WARNING "Working directory does not exist: ${working_dir}")
+        set(_ok FALSE)
+    endif()
+    set(${out_ok} ${_ok} PARENT_SCOPE)
+endfunction()
+
+# Run parse_test_categories.py and include the generated test_categories.cmake.
+function(_ctest_run_gtest_category_parser parse_script out_ok)
+    execute_process(
+        COMMAND ${Python3_EXECUTABLE} ${parse_script} ${ARGN}
+        OUTPUT_VARIABLE CMAKE_CATEGORY_CODE
+        ERROR_VARIABLE PARSE_ERROR
+        RESULT_VARIABLE PARSE_RESULT
+    )
+
+    set(${out_ok} TRUE PARENT_SCOPE)
+    if(NOT PARSE_RESULT EQUAL 0)
+        message(WARNING "Failed to parse test categories YAML: ${PARSE_ERROR}")
+        set(${out_ok} FALSE PARENT_SCOPE)
+        return()
+    endif()
+
+    set(CATEGORY_CMAKE "${CMAKE_CURRENT_BINARY_DIR}/test_categories.cmake")
+    file(WRITE "${CATEGORY_CMAKE}" "${CMAKE_CATEGORY_CODE}")
+
+    message(STATUS "Generated test category configuration: ${CATEGORY_CMAKE}")
+
+    if(NOT EXISTS "${CATEGORY_CMAKE}")
+        message(WARNING "Generated test categories file not found: ${CATEGORY_CMAKE}")
+        set(${out_ok} FALSE PARENT_SCOPE)
+        return()
+    endif()
+
+    include("${CATEGORY_CMAKE}")
+endfunction()
+
 # Function to apply category labels to discovered GTest tests
 # Optional 4th parameter: install_test_file - path to write install-time test definitions
 # Optional 5th parameter: resource_group - CTest RESOURCE_GROUPS token to apply to
@@ -14,31 +62,18 @@ find_package(Python3 COMPONENTS Interpreter)
 #   example "--use-rtest-driver" to run the project's <stem>_rtest.py driver with
 #   -t ctest_<category> instead of invoking the gtest binary directly).
 function(apply_test_category_labels target_name yaml_file working_dir)
-    # Execute the Python script to generate CMake code
     if(NOT Python3_FOUND)
         message(WARNING "Python3 not found, cannot parse test categories YAML")
         return()
     endif()
 
-    # Validate inputs
-    set(_validation_failed FALSE)
-    if("${target_name}" STREQUAL "")
-        message(WARNING "target_name is empty, cannot generate test categories")
-        set(_validation_failed TRUE)
-    endif()
-    if(NOT EXISTS "${yaml_file}")
-        message(WARNING "Test categories YAML file not found: ${yaml_file}")
-        set(_validation_failed TRUE)
-    endif()
-    if(NOT IS_DIRECTORY "${working_dir}")
-        message(WARNING "Working directory does not exist: ${working_dir}")
-        set(_validation_failed TRUE)
-    endif()
-    if(_validation_failed)
+    _ctest_validate_gtest_category_label_args(
+        ${target_name} "${yaml_file}" "${working_dir}" _args_ok
+    )
+    if(NOT _args_ok)
         return()
     endif()
 
-    # Verify the parser script exists
     set(PARSE_SCRIPT "${ROCM_LIBRARIES_ROOT}/shared/ctest/parse_test_categories.py")
     if(NOT EXISTS "${PARSE_SCRIPT}")
         message(WARNING "Test category parser script not found: ${PARSE_SCRIPT}")
@@ -68,32 +103,10 @@ function(apply_test_category_labels target_name yaml_file working_dir)
         set(python_args ${extra_args} ${yaml_file} ${target_name} ${working_dir})
     endif()
 
-    execute_process(
-        COMMAND ${Python3_EXECUTABLE} ${PARSE_SCRIPT} ${python_args}
-        OUTPUT_VARIABLE CMAKE_CATEGORY_CODE
-        ERROR_VARIABLE PARSE_ERROR
-        RESULT_VARIABLE PARSE_RESULT
-    )
-
-    if(NOT PARSE_RESULT EQUAL 0)
-        message(WARNING "Failed to parse test categories YAML: ${PARSE_ERROR}")
+    _ctest_run_gtest_category_parser("${PARSE_SCRIPT}" _run_ok ${python_args})
+    if(NOT _run_ok)
         return()
     endif()
-
-    # Write the generated CMake code to a file and include it
-    set(CATEGORY_CMAKE "${CMAKE_CURRENT_BINARY_DIR}/test_categories.cmake")
-    file(WRITE "${CATEGORY_CMAKE}" "${CMAKE_CATEGORY_CODE}")
-
-    message(STATUS "Generated test category configuration: ${CATEGORY_CMAKE}")
-
-    # Verify the generated CMake file exists before including it
-    if(NOT EXISTS "${CATEGORY_CMAKE}")
-        message(WARNING "Generated test categories file not found: ${CATEGORY_CMAKE}")
-        return()
-    endif()
-
-    # Include and execute the generated CMake code
-    include("${CATEGORY_CMAKE}")
 endfunction()
 
 # Function to apply category labels to discovered Catch2 tests using tag-based filtering
