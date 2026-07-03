@@ -66,7 +66,6 @@ struct vectorized_search_benchmark : public primbench::benchmark_interface
 
     state.set_items(needles);
     state.add_reads<T>(needles);
-    state.add_writes<T>(0);
 
     state.run([&] {
       thrust::upper_bound(
