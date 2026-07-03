@@ -67,9 +67,7 @@ def _format_category_command(
     if use_rtest_driver:
         rtest_script = _rtest_script_basename(name_prefix)
         rtest_set = f"ctest_{category_name}"
-        return (
-            f'"${{Python3_EXECUTABLE}}" {rtest_script} -t {rtest_set}{extra_args_string}'
-        )
+        return f'"${{Python3_EXECUTABLE}}" {rtest_script} -t {rtest_set}{extra_args_string}'
     return _format_gtest_command_tail(
         target_name, pattern_string, extra_args_string, test_yaml
     )
@@ -334,7 +332,7 @@ def main():
             "(basename derived from name_prefix; typically mylib-test -> "
             "mylib_rtest.py) with -t ctest_<category> instead of invoking the "
             "gtest binary with --gtest_filter=... "
-            "(requires matching <test sets=\"ctest_<category>\"> entries in the "
+            '(requires matching <test sets="ctest_<category>"> entries in the '
             "project's rtest XML)."
         ),
     )
