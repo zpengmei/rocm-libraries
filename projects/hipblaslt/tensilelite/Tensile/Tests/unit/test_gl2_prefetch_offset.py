@@ -38,6 +38,9 @@
 #     prefetched-ahead iteration advances every address by `inc` (incrementAddr).
 #     The kernel re-exports all addresses across n_inc+1 stages; stage s must be
 #     the base footprint shifted by (PGR+s)*inc along the summation (K) axis.
+#   - Non-power-of-2 MacroTile (e.g. 384 for A/B, 192/96 for MX scales): exercises
+#     MT offset, non-POT gl2ncc (vectorStaticDivideAndRemainder), and non-POT
+#     perpendicular/coalesced extents. DepthU remains a multiple of MatrixInstK.
 # Verification is set-based: the union of each tensor's computed byte offsets
 # (per stage) must equal M macro-tiles {m*mt_stride + c*GPS} shifted by the
 # stage's K increment, where M is the launch extent along the tensor's
@@ -55,6 +58,7 @@ import struct
 import tempfile
 import types
 from dataclasses import dataclass
+from math import ceil
 from types import SimpleNamespace
 
 import pytest
@@ -148,6 +152,12 @@ class GL2Config:
         return self.n_wg * self.num_batches
 
 
+def num_cooperative_threads(cfg, subtc):
+    """Cooperative thread count along the tensor's cluster axis (matches GL2Prefetch.init)."""
+    num_wgs = cfg.cluster[1] if subtc == "A" else cfg.cluster[0]
+    return num_wgs * cfg.num_threads
+
+
 def tensor_dims(spec, cfg):
     """(coal_dim, perp_dim, ncc, nc) for a tensor, matching GL2Prefetch.init."""
     if spec.is_mx:
@@ -157,6 +167,12 @@ def tensor_dims(spec, cfg):
         coal, perp = (spec.mt, cfg.depth_u) if spec.tlu else (cfg.depth_u, spec.mt)
     ncc = max(1, round(coal * spec.bpe) // GLOBAL_PREFETCH_SIZE)
     return coal, perp, ncc, perp * ncc
+
+
+def tensor_gl2nl(spec, cfg):
+    """Loads per thread (gl2nl), matching GL2Prefetch.init."""
+    nc = tensor_dims(spec, cfg)[3]
+    return max(1, ceil(nc / num_cooperative_threads(cfg, spec.subtc)))
 
 
 def free_dim_size(cfg, subtc):
@@ -184,13 +200,14 @@ def _MXSB(mt):            return TensorSpec("MXSB", True, mt, 1)
 
 
 # gl2-prefetch is only emitted for ClusterDim != [1,1], so every config runs a
-# (power-of-2) cooperative cluster. ClusterDim = [cx, cy]: A/MXSA cooperate along
-# cy and span cx macro-tiles; B/MXSB are the mirror. Cluster shapes are varied
-# across configs (and include [4,4]) to exercise both cooperative axes.
+# cooperative cluster. ClusterDim = [cx, cy]: A/MXSA cooperate along cy and span
+# cx macro-tiles; B/MXSB are the mirror. Shapes include power-of-2 and non-POT
+# MacroTile / cluster extents (scalarStaticRemainder, ceil(gl2nl), ncc divide).
 CONFIGS = [
-    # ---- A + B together, FP8, assorted cluster shapes (incl. [4,4]) ----
-    GL2Config("ab_fp8_tlu",          [_A(True, 256),  _B(True, 256)],  cluster=(2, 2)),
-    GL2Config("ab_fp8_ntlu",         [_A(False, 256), _B(False, 256)], cluster=(4, 4)),
+    # ---- A + B together, FP8 TLU; MT=384 (non-POT) -> gl2ncc==2 ----
+    GL2Config("ab_fp8_tlu",          [_A(True, 384),  _B(True, 384)],  cluster=(2, 2)),
+    # ---- A + B non-TLU; MT=384 (non-POT) on perpendicular dim ----
+    GL2Config("ab_fp8_ntlu",         [_A(False, 384), _B(False, 384)], cluster=(4, 4)),
     # batched=True also exercises the StridedBatched path (WorkGroup2 * Stride{tc}K
     # folded into the base addr): batch 0 reproduces the non-batched footprint, and
     # batch >0 verifies the per-batch shift. The grid gains a z extent (wg_z from
@@ -204,9 +221,11 @@ CONFIGS = [
               depth_u=512, cluster=(1, 2)),
     # ---- A + B + MXSA + MXSB together (full MX problem) ----
     # batched=True here also covers the StridedBatched path for MX scales (Stride{MXSx}K).
-    GL2Config("abmx_fp8",      [_A(True, 256),  _B(True, 256),  _MXSA(256), _MXSB(256)],
+    # ---- A + B + MXSA + MXSB together; MT=192 (non-POT) -> MX gl2ncc==3 ----
+    GL2Config("abmx_fp8",      [_A(True, 192),  _B(True, 192),  _MXSA(192), _MXSB(192)],
               depth_u=256, mx_block=32, cluster=(2, 2), batched=True, num_batches=2),
-    GL2Config("abmx_fp8_ntlu", [_A(False, 256), _B(False, 256), _MXSA(256), _MXSB(256)],
+    # ---- full MX problem, non-TLU data; MT=384 (non-POT) ----
+    GL2Config("abmx_fp8_ntlu", [_A(False, 384), _B(False, 384), _MXSA(384), _MXSB(384)],
               depth_u=256, mx_block=32, cluster=(2, 1)),
     # ---- FP4 (bpe=0.5) on A and B, TLU, ncc==1 and (coal*bpe==2*GPS) ncc==2 ----
     GL2Config("ab_fp4_tlu",      [_A(True, 512, bpe=0.5),  _B(True, 512, bpe=0.5)],
@@ -216,8 +235,8 @@ CONFIGS = [
     # ---- non-TLU: FP4 tile-split on A + FP8 coalesced-split ncc2 on B (coal==DepthU) ----
     GL2Config("ab_ntlu_f4f8", [_A(False, 256, bpe=0.5), _B(False, 128, bpe=1)],
               depth_u=512, cluster=(2, 2)),
-    # ---- MX scales together: MXSA at ncc==2, MXSB at ncc==1 ----
-    GL2Config("mxab_ncc", [_MXSA(128), _MXSB(64)], depth_u=1024, num_threads=16,
+    # ---- MX scales together: MXSA ncc==3, MXSB ncc==2 (non-POT MT 192 / 96) ----
+    GL2Config("mxab_ncc", [_MXSA(192), _MXSB(96)], depth_u=1024, num_threads=16,
               mx_block=32, cluster=(2, 4)),
     # ---- Edge clamp: SizeI/SizeJ is NOT a clean multiple of the tiling, so the
     # last macro-tile is partial and the edge-limit clamp min(idx, Size-1) fires.
@@ -227,7 +246,11 @@ CONFIGS = [
     GL2Config("ab_tlu_edge",  [_A(True, 512), _B(True, 512)],
               depth_u=128, cluster=(2, 2), size_i=700, size_j=700),
     GL2Config("mx_edge", [_MXSA(128), _MXSB(64)], depth_u=1024, num_threads=16,
-              mx_block=32, cluster=(2, 2), size_i=150, size_j=50),
+              mx_block=32, cluster=(2, 2), size_i=150, size_j=80),
+    # ---- gl2nl > 1: nc > cooperative threads (stride-add path); DU is MIK-aligned ----
+    GL2Config("ab_tlu_nl2", [_A(True, 256), _B(True, 256)], depth_u=640, cluster=(2, 2)),
+    # ---- non-POT cooperative cluster extent (scalarStaticRemainder non-POT path) ----
+    GL2Config("ab_cluster_cy3", [_A(True, 256), _B(True, 256)], cluster=(2, 3)),
 ]
 
 
@@ -365,16 +388,17 @@ def build_kernel(cfg):
         comp.init(w, kernel, tp)
         assert tp["gl2nc"] == tensor_dims(t, cfg)[3], \
             f"{t.tc}: gl2nc {tp['gl2nc']} != expected {tensor_dims(t, cfg)[3]}"
-        for i in range(tp["gl2nlp"]):
-            for j in range(tp["gl2nlc"]):
-                name = f"GL2PrefetchAddr{t.tc}_{i}_{j}"
-                vgpr_sets[name] = w.vgprPool.checkOutAligned(2, 2, name, preventOverflow=False)
+        assert tp["gl2nl"] == tensor_gl2nl(t, cfg), \
+            f"{t.tc}: gl2nl {tp['gl2nl']} != expected {tensor_gl2nl(t, cfg)}"
+        for i in range(tp["gl2nl"]):
+            name = f"GL2PrefetchAddr{t.tc}_{i}"
+            vgpr_sets[name] = w.vgprPool.checkOutAligned(2, 2, name, preventOverflow=False)
         tps.append((t, tp))
 
     # output elements written by one workgroup (used to shift per-wg regions);
     # each of the n_stages re-exports every tensor's loads.
     n_stages = cfg.n_inc + 1
-    n_out_per_wg = n_stages * sum(cfg.num_threads * tp["gl2nlp"] * tp["gl2nlc"] for _, tp in tps)
+    n_out_per_wg = n_stages * sum(cfg.num_threads * tp["gl2nl"] for _, tp in tps)
 
     # ---- body: setIncrement (all), then calculateStartAddr (each).
     # calculateStartAddr now folds in the base Address{tc} and the PGR pre-skip
@@ -440,29 +464,28 @@ def build_kernel(cfg):
     val = w.vgprPool.checkOut(1, "val", preventOverflow=False)
 
     def export_tensor(t, tp, region):
-        num_loads = tp["gl2nlp"] * tp["gl2nlc"]
+        num_loads = tp["gl2nl"]
         base = w.sgprs[f"Address{t.tc}"]
         k = 0
-        for i in range(tp["gl2nlp"]):
-            for j in range(tp["gl2nlc"]):
-                addr = vgpr_sets[f"GL2PrefetchAddr{t.tc}_{i}_{j}"]
-                epi.add(TextBlock("  v_sub_co_u32 v%d, vcc_lo, v%d, s%d\n" % (val, addr, base)))
-                # output element index = region + Serial*num_loads + k
-                if num_loads == 1:
-                    epi.add(TextBlock("  v_add_nc_u32 v%d, %d, v0\n" % (off, region + k)))
-                else:
-                    epi.add(TextBlock("  v_mul_u32_u24 v%d, v0, %d\n" % (off, num_loads)))
-                    epi.add(TextBlock("  v_add_nc_u32 v%d, %d, v%d\n" % (off, region + k, off)))
-                if cfg.n_regions > 1:          # shift this region's results into its own slice
-                    epi.add(TextBlock("  v_add_nc_u32 v%d, s%d, v%d\n"
-                                      % (off, w.sgprs["WGOUT"], off)))
-                epi.add(TextBlock("  v_lshlrev_b32 v%d, 2, v%d\n" % (off, off)))
-                epi.add(TextBlock("  v_add_co_u32 v%d, vcc_lo, s%d, v%d\n"
-                                  % (a_lo, w.sgprs["OutPtr"], off)))
-                epi.add(TextBlock("  v_mov_b32 v%d, s%d\n" % (a_hi, w.sgprs["OutPtr"] + 1)))
-                epi.add(TextBlock("  v_add_co_ci_u32 v%d, vcc_lo, v%d, 0, vcc_lo\n" % (a_hi, a_hi)))
-                epi.add(TextBlock("  flat_store_b32 v[%d:%d], v%d\n" % (a_lo, a_hi, val)))
-                k += 1
+        for i in range(tp["gl2nl"]):
+            addr = vgpr_sets[f"GL2PrefetchAddr{t.tc}_{i}"]
+            epi.add(TextBlock("  v_sub_co_u32 v%d, vcc_lo, v%d, s%d\n" % (val, addr, base)))
+            # output element index = region + Serial*num_loads + k
+            if num_loads == 1:
+                epi.add(TextBlock("  v_add_nc_u32 v%d, %d, v0\n" % (off, region + k)))
+            else:
+                epi.add(TextBlock("  v_mul_u32_u24 v%d, v0, %d\n" % (off, num_loads)))
+                epi.add(TextBlock("  v_add_nc_u32 v%d, %d, v%d\n" % (off, region + k, off)))
+            if cfg.n_regions > 1:          # shift this region's results into its own slice
+                epi.add(TextBlock("  v_add_nc_u32 v%d, s%d, v%d\n"
+                                  % (off, w.sgprs["WGOUT"], off)))
+            epi.add(TextBlock("  v_lshlrev_b32 v%d, 2, v%d\n" % (off, off)))
+            epi.add(TextBlock("  v_add_co_u32 v%d, vcc_lo, s%d, v%d\n"
+                              % (a_lo, w.sgprs["OutPtr"], off)))
+            epi.add(TextBlock("  v_mov_b32 v%d, s%d\n" % (a_hi, w.sgprs["OutPtr"] + 1)))
+            epi.add(TextBlock("  v_add_co_ci_u32 v%d, vcc_lo, v%d, 0, vcc_lo\n" % (a_hi, a_hi)))
+            epi.add(TextBlock("  flat_store_b32 v[%d:%d], v%d\n" % (a_lo, a_hi, val)))
+            k += 1
 
     layout = []
     region = 0
@@ -471,7 +494,7 @@ def build_kernel(cfg):
             for t, tp in tps:
                 epi.add(comp.incrementAddr(w, kernel, tp))
         for t, tp in tps:
-            num_loads = tp["gl2nlp"] * tp["gl2nlc"]
+            num_loads = tp["gl2nl"]
             export_tensor(t, tp, region)
             layout.append((t, num_loads, stage, region))
             region += cfg.num_threads * num_loads
