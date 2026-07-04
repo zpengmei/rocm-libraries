@@ -228,6 +228,83 @@ def runNewClient(scriptPath, clientParametersPath, cxxCompiler: str, cCompiler: 
     printWarning("ClientWriter Benchmark Process exited with error: {}".format(e))
 
 
+def _resultsFileFromConfig(configPaths):
+  """Parse the 'results-file' path out of a ClientParameters.ini (for the
+  hang watchdog's progress monitoring). Returns None if not found."""
+  import re
+  for cp in (configPaths or []):
+    try:
+      for line in open(cp, errors="ignore"):
+        m = re.match(r"\s*results-file\s*[:=]\s*(\S.*?)\s*$", line)
+        if m:
+          return m.group(1).strip().strip('"')
+    except OSError:
+      pass
+  return None
+
+
+def _runClientWithHangWatchdog(runScriptName, buildPath, configPaths, hangTimeout):
+  """Run the benchmark client under a stall watchdog (opt-in via
+  TENSILE_CLIENT_HANG_TIMEOUT seconds). A gfx1250 kernel that hangs the GPU
+  queue makes the client spin forever with no benchmark progress; a plain
+  process.communicate() would then block the whole tuning run.
+
+  Progress is tracked via the client's STDOUT (it streams a per-solution
+  "N/M" benchmark counter). The client's output is tee'd back to this
+  process's stdout so existing logging is preserved. If no output arrives for
+  `hangTimeout` seconds, the current kernel is assumed hung: the client is
+  gently killed (SIGTERM -> SIGKILL) and returncode 124 is reported so the
+  caller can score the completed kernels and penalize the stuck one, then
+  continue. Default (env unset/0) keeps the original blocking behavior for all
+  other users."""
+  import time, threading, sys
+
+  process = subprocess.Popen(runScriptName, cwd=buildPath,
+                             stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
+                             bufsize=1, universal_newlines=True)
+  state = {"last": time.time()}
+
+  def _reader():
+    try:
+      for line in process.stdout:
+        try:
+          sys.stdout.write(line)   # preserve original client logging
+          sys.stdout.flush()
+        except Exception:
+          pass
+        state["last"] = time.time()
+    except Exception:
+      pass
+
+  reader = threading.Thread(target=_reader, daemon=True)
+  reader.start()
+
+  while True:
+    try:
+      process.wait(timeout=5)
+      break  # client exited on its own
+    except subprocess.TimeoutExpired:
+      pass
+    if time.time() - state["last"] > hangTimeout:
+      printWarning("runClient: no client output for %ds -> killing stuck client "
+                   "(hang timeout); caller will skip the stuck kernel" % hangTimeout)
+      try:
+        process.terminate()
+        process.wait(timeout=20)
+      except subprocess.TimeoutExpired:
+        process.kill()
+        process.wait(timeout=10)
+      if process.returncode is None or process.returncode == 0:
+        process.returncode = 124  # timeout sentinel
+      break
+
+  try:
+    reader.join(timeout=5)
+  except Exception:
+    pass
+  return process
+
+
 def runClient(libraryLogicPath, forBenchmark, enableTileSelection, cxxCompiler: str, cCompiler: str, outputPath, configPaths=None):
   buildPath = ensurePath(outputPath / "build")
   timingEnabled = globalParameters.get("TimingInstrumentation", False)
@@ -267,8 +344,12 @@ def runClient(libraryLogicPath, forBenchmark, enableTileSelection, cxxCompiler: 
     runScriptName = writeRunScript(buildPath, forBenchmark, enableTileSelection, cxxCompiler, cCompiler, buildPath, configPaths)
 
     with ClientExecutionLock(globalParameters["ClientExecutionLockPath"]):
-      process = subprocess.Popen(runScriptName, cwd=buildPath)
-      process.communicate()
+      hangTimeout = int(os.environ.get("TENSILE_CLIENT_HANG_TIMEOUT", "0") or "0")
+      if hangTimeout > 0 and forBenchmark:
+        process = _runClientWithHangWatchdog(runScriptName, buildPath, configPaths, hangTimeout)
+      else:
+        process = subprocess.Popen(runScriptName, cwd=buildPath)
+        process.communicate()
 
   if process.returncode:
     printWarning("ClientWriter Benchmark Process exited with code %u" % process.returncode)
