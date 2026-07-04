@@ -10,6 +10,15 @@ except:
     print('CSafeLoader is not installed.')
     DEFAULT_YAML_LOADER = yaml.SafeLoader
 
+def _anchors(loader: yaml.Loader) -> dict:
+    # Anchors defined in the current stream are recorded here so that later
+    # AliasEvents (*ref) can be resolved back to the node they point at.
+    store = getattr(loader, "_custom_anchors", None)
+    if store is None:
+        store = {}
+        loader._custom_anchors = store
+    return store
+
 def parse_general(loader: yaml.Loader):
     if loader.check_event(yaml.MappingStartEvent):
         return parse_mapping(loader)
@@ -17,11 +26,19 @@ def parse_general(loader: yaml.Loader):
         return parse_sequence(loader)
     elif loader.check_event(yaml.ScalarEvent):
         return parse_scalar(loader)
+    elif loader.check_event(yaml.AliasEvent):
+        return parse_alias(loader)
+
+def parse_alias(loader: yaml.Loader):
+    evt = loader.get_event()
+    return _anchors(loader)[evt.anchor]
 
 def parse_sequence(loader: yaml.Loader):
     ret = []
     #pop sequence start event
-    loader.get_event()
+    evt = loader.get_event()
+    if evt.anchor is not None:
+        _anchors(loader)[evt.anchor] = ret
     while not loader.check_event(yaml.SequenceEndEvent):
         ret.append(parse_general(loader))
     #pop sequence end event
@@ -32,7 +49,9 @@ def parse_mapping(loader: yaml.Loader):
     ret = {}
     k, v = None, None
     #pop mapping start event
-    loader.get_event()
+    evt = loader.get_event()
+    if evt.anchor is not None:
+        _anchors(loader)[evt.anchor] = ret
     while not loader.check_event(yaml.MappingEndEvent):
         if k is None:
             k = parse_scalar(loader)
@@ -55,6 +74,12 @@ def is_float(value):
 def parse_scalar(loader: yaml.Loader):
     assert loader.check_event(yaml.ScalarEvent)
     evt = loader.get_event()
+    result = _parse_scalar_value(evt)
+    if evt.anchor is not None:
+        _anchors(loader)[evt.anchor] = result
+    return result
+
+def _parse_scalar_value(evt):
     value: str = evt.value
     value_lower: str = value.lower()
 
