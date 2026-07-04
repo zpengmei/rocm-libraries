@@ -225,6 +225,21 @@ def _apt_install(c, packages: list[str]):
             capture_output=True, text=True,
         )
         if "ii" not in result.stdout:
+            # Some ROCm packages (e.g. rocm-llvm-dev, hipblas-common-dev) may be
+            # provided by a non-apt ROCm install under /opt/rocm rather than the
+            # apt repositories. If apt cannot locate the package, warn and skip
+            # instead of aborting the whole build.
+            available = subprocess.run(
+                ["apt-cache", "show", pkg],
+                capture_output=True, text=True,
+            )
+            if available.returncode != 0 or not available.stdout.strip():
+                print(
+                    f"\033[33mWARNING: package '{pkg}' not found in apt repositories; "
+                    f"skipping (assuming it is provided by the ROCm install under "
+                    f"{os.environ.get('ROCM_PATH', '/opt/rocm')}).\033[0m"
+                )
+                continue
             print(f"\033[32mInstalling \033[33m{pkg}\033[32m via apt\033[0m")
             _elevate(c, f"apt install -y --no-install-recommends {pkg}")
 
