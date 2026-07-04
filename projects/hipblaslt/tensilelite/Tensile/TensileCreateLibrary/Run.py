@@ -221,10 +221,21 @@ def processKernelSource(kernelWriterAssembly, data, outOptions, splitGSU, kernel
     kernelWriter = kernelWriterAssembly
     kernelWriter.setRocIsa(data, outOptions)
     asmFilename = getKernelFileBase(splitGSU, kernel)
-    err, src = kernelWriter.getSourceFileString(kernel)
-    if compress:
-        src = memCompress(src)
-    header = kernelWriter.getHeaderFileString(kernel)
+    # Hardening: a per-kernel codegen bug (e.g. a wave64-only "assert
+    # waveSize == 64", or a missing LraTileAssignment component for fp32 WMMA on
+    # gfx1250) must NOT abort the whole library build. Convert any codegen
+    # exception into an invalid kernel (err=1) so removeInvalidSolutionsAndKernels
+    # prunes it -- exactly like the graceful "Generating kernel source resulted
+    # in error N" path already does for other unbuildable kernels.
+    try:
+        err, src = kernelWriter.getSourceFileString(kernel)
+        if compress:
+            src = memCompress(src)
+        header = kernelWriter.getHeaderFileString(kernel)
+    except Exception as e:  # noqa: BLE001 - intentionally broad: any codegen failure -> skip kernel
+        print("Tensile::WARNING: Failed to generate kernel source for %s: %s (skipping)"
+              % (asmFilename, repr(e)))
+        err, src, header = 1, "", ""
     objFilename = kernel._state.get("codeObjectFile", None)
     pgr = int(kernel["PrefetchGlobalRead"])
     cuocc = kernel["CUOccupancy"]
@@ -493,13 +504,28 @@ def writeSolutionsAndKernels(
         )
 
     def assemble(ret):
+        # Returns True on success, False if the assembler rejected the kernel.
+        # Hardening: an assembler-level reject (e.g. "branch size exceeds simm16"
+        # from an un-relaxed GlobalSplitU store branch on large gfx1250 tiles)
+        # must NOT abort the whole GEMM's build. Catch it, skip the kernel, and
+        # let it be pruned below so the library never references a missing .o.
         p, isa, wavefrontsize, _ = ret
         o_path = p.with_suffix(".o")
-        asmToolchain.assembler(isaToGfx(isa), wavefrontsize, str(p), str(o_path))
-        if _stinky_asm_verify_wanted(isa):
-            _verify_stinky_asm_comment_vs_elf_text(p, o_path, p.stem)
+        ok = True
+        try:
+            asmToolchain.assembler(isaToGfx(isa), wavefrontsize, str(p), str(o_path))
+            if _stinky_asm_verify_wanted(isa):
+                _verify_stinky_asm_comment_vs_elf_text(p, o_path, p.stem)
+        except Exception as e:  # noqa: BLE001 - any assembler failure -> skip kernel
+            print("Tensile::WARNING: Failed to assemble kernel %s: %s (skipping)"
+                  % (p.stem, repr(e)))
+            ok = False
         if removeTemporaries:
-            p.unlink()
+            try:
+                p.unlink()
+            except OSError:
+                pass
+        return ok
 
     unaryWriteAssembly = functools.partial(writeAssembly, assemblyTmpPath)
     compose = lambda *F: functools.reduce(lambda f, g: lambda x: f(g(x)), F)
@@ -510,6 +536,22 @@ def writeSolutionsAndKernels(
             "Writing assembly kernels",
             return_as="list",
             multiArg=False,
+        )
+
+    # Prune kernels/solutions whose assembly failed (ret is a per-kernel ok flag
+    # aligned with asmResults). Mark them invalid (err=1) and reuse the standard
+    # pruner so both asmKernels and the referencing solutions are dropped before
+    # buildAssemblyCodeObjectFiles -- otherwise the library would reference a
+    # kernel with no object file.
+    if ret is not None and not all(ret):
+        n_failed = sum(1 for ok in ret if not ok)
+        print("Tensile::WARNING: %d kernel(s) failed to assemble; pruning them and "
+              "their solutions." % n_failed)
+        for i, ok in enumerate(ret):
+            if not ok:
+                asmResults[i] = asmResults[i]._replace(err=1)
+        removeInvalidSolutionsAndKernels(
+            asmResults, asmKernels, solutions, True, getVerbosity(), splitGSU
         )
 
     with timing_context("python_kernel_write_helpers"):
