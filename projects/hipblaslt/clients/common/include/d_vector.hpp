@@ -358,9 +358,12 @@ public:
 #else
     d_vector(size_t s, bool HMM = false)
         : m_size(s)
-        , m_pad(0) // save current pad length
-        , m_guard_len(0 * sizeof(T))
-        , m_bytes(s ? s * sizeof(T) : sizeof(T))
+        // Non-GOOGLE_TEST (bench) build: over-allocate g_DVEC_PAD elements each
+        // side for OOB fault absorption (see d_vector_type above). g_DVEC_PAD
+        // comes from --pad. Free is via the pool base, so the offset is safe.
+        , m_pad(g_DVEC_PAD)
+        , m_guard_len(g_DVEC_PAD * sizeof(T))
+        , m_bytes(((s + g_DVEC_PAD * 2) ? (s + g_DVEC_PAD * 2) : 1) * sizeof(T))
         , use_HMM(HMM)
     {
     }
@@ -386,6 +389,11 @@ public:
                           hipSuccess);
             }
         }
+#else
+        // Offset into the over-allocated arena (OOB fault absorption). Free is via
+        // memory_pool::Restore(m_mem) (base), so offsetting the returned ptr is safe.
+        if(d && m_pad > 0)
+            d += m_pad;
 #endif
         return d;
     }
@@ -496,9 +504,14 @@ public:
     d_vector_type(hipDataType dtype, size_t s, bool HMM = false)
         : m_size(s)
         , m_dtype(dtype)
-        , m_pad(0) // save current pad length
-        , m_guard_len(0 * realDataTypeSize(dtype))
-        , m_bytes(s ? s * realDataTypeSize(dtype) : realDataTypeSize(dtype))
+        // Non-GOOGLE_TEST (e.g. hipblaslt-bench) build: over-allocate g_DVEC_PAD
+        // elements on EACH side so bounded out-of-bounds kernel accesses land in
+        // valid (allocated) memory -- absorbing the OOB as a wrong result instead
+        // of a GPU page-fault -> MES deadlock -> whole-box hang. Uncapped here (no
+        // host sentinel array is used on this path). g_DVEC_PAD comes from --pad.
+        , m_pad(g_DVEC_PAD)
+        , m_guard_len(g_DVEC_PAD * realDataTypeSize(dtype))
+        , m_bytes(((s + g_DVEC_PAD * 2) ? (s + g_DVEC_PAD * 2) : 1) * realDataTypeSize(dtype))
         , use_HMM(HMM)
     {
     }
@@ -528,6 +541,12 @@ public:
                           hipSuccess);
             }
         }
+#else
+        // Offset into the over-allocated arena so both-sided OOB stays in valid
+        // memory. Free is via memory_pool::Restore(m_mem) (the base), so this
+        // pointer offset is safe.
+        if(d && m_pad > 0)
+            d += m_pad * realDataTypeSize(m_dtype);
 #endif
         return d;
     }

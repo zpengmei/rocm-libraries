@@ -25,10 +25,24 @@
  *******************************************************************************/
 #include "singletons.hpp"
 
+#include <cstdlib>
+
 // global for device memory padding see d_vector.hpp
 size_t g_DVEC_PAD = 4096;
 
 void d_vector_set_pad_length(size_t pad)
 {
+    // HIPBLASLT_GUARD_PAD_ELEMENTS=<n> overrides the device-buffer guard padding
+    // (elements added each side of every tensor) for OOB fault absorption during
+    // offline tuning of large kernel banks: a bounded out-of-bounds kernel access
+    // then lands in valid memory (wrong result) instead of page-faulting -> MES
+    // deadlock -> GPU/box hang. Larger = absorbs farther OOB (costs a little extra
+    // device memory per tensor). Unset -> the passed default (4096).
+    if(const char* e = std::getenv("HIPBLASLT_GUARD_PAD_ELEMENTS"))
+    {
+        long v = std::atol(e);
+        if(v >= 0)
+            pad = static_cast<size_t>(v);
+    }
     g_DVEC_PAD = pad;
 }
