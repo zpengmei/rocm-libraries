@@ -26,6 +26,8 @@
 
 #include "DataInitialization.hpp"
 
+#include <cstdlib>
+
 #if HIPBLASLT_ENABLE_MXDATAGENERATOR
 #include <mxDataGen.hpp>
 #include "DataInitializationHelpers.hpp"
@@ -981,6 +983,38 @@ namespace TensileLite
                 m_numRunsPerSolution = 2;
             }
 
+            // --- Offline-tuning fault-tolerance env overrides ------------------
+            // HIPBLASLT_GUARD_PAD_ELEMENTS=<n>: enlarge the NaN guard padding to
+            // <n> valid (NaN-filled) elements appended to each tensor, and force
+            // BoundsCheckMode::NaN if no bounds-check mode was explicitly chosen.
+            // Bounded out-of-bounds kernel accesses then land in valid memory
+            // (producing NaN/garbage, caught by validation) instead of triggering
+            // a GPU page-fault -> MES deadlock -> box hang. The rotating pool
+            // sizing below reads the padded maxElements, so it tracks this.
+            if(const char* e = std::getenv("HIPBLASLT_GUARD_PAD_ELEMENTS"))
+            {
+                long v = std::atol(e);
+                if(v > 0)
+                {
+                    m_nanGuardPadElements = static_cast<size_t>(v);
+                    if(m_boundsCheck == BoundsCheckMode::Disable)
+                    {
+                        m_boundsCheck    = BoundsCheckMode::NaN;
+                        m_curBoundsCheck = BoundsCheckMode::NaN;
+                    }
+                }
+            }
+            // HIPBLASLT_FORCE_VALIDATE=<n>: force numerical validation on when the
+            // client was launched without it (num-elements-to-validate==0), so a
+            // kernel that OOB-writes into the guard padding is caught as a wrong
+            // result and excluded rather than silently passing. -1 validates all.
+            if(const char* e = std::getenv("HIPBLASLT_FORCE_VALIDATE"))
+            {
+                int v = std::atoi(e);
+                if(m_elementsToValidate == 0 && v != 0)
+                    m_elementsToValidate = v;
+            }
+
             std::vector<std::vector<double>> activationAdditionalArgs;
             if(args.count("activation-additional-args"))
                 activationAdditionalArgs
@@ -1221,7 +1255,7 @@ namespace TensileLite
 
                     if(m_curBoundsCheck == BoundsCheckMode::NaN)
                     {
-                        p->second.maxElements += 1024;
+                        p->second.maxElements += m_nanGuardPadElements;
                     }
                     else if(m_curBoundsCheck == BoundsCheckMode::GuardPageFront
                             || m_curBoundsCheck == BoundsCheckMode::GuardPageBack)

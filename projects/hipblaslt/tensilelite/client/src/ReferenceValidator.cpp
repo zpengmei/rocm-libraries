@@ -24,6 +24,7 @@
  *
  *******************************************************************************/
 
+#include <cstdlib>
 #include "ReferenceValidator.hpp"
 #include "ResultComparison.hpp"
 #include "ResultReporter.hpp"
@@ -46,6 +47,15 @@ namespace TensileLite
             : m_dataInit(dataInit)
         {
             m_elementsToValidate = args["num-elements-to-validate"].as<int>();
+            // HIPBLASLT_FORCE_VALIDATE=<n>: force validation on (matches the override
+            // in DataInitialization) so OOB-into-guard-padding kernels are caught as
+            // wrong results during offline tuning. -1 validates all elements.
+            if(const char* e = std::getenv("HIPBLASLT_FORCE_VALIDATE"))
+            {
+                int v = std::atoi(e);
+                if(m_elementsToValidate == 0 && v != 0)
+                    m_elementsToValidate = v;
+            }
             m_printValids        = args["print-valids"].as<bool>();
             m_printMax           = args["print-max"].as<int>();
 

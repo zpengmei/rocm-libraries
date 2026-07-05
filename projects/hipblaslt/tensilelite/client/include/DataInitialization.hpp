@@ -1152,6 +1152,12 @@ namespace TensileLite
             BoundsCheckMode m_curBoundsCheck     = BoundsCheckMode::Disable;
             int             m_numRunsPerSolution = 0;
             int             m_numRunsInSolution  = 0;
+            /// Elements of valid (NaN-filled) guard padding appended to each tensor
+            /// in BoundsCheckMode::NaN. Larger padding absorbs bounded out-of-bounds
+            /// kernel accesses into valid memory (wrong result, caught by validation)
+            /// instead of a GPU page-fault/hang. Configurable via
+            /// HIPBLASLT_GUARD_PAD_ELEMENTS (see DataInitialization ctor).
+            size_t          m_nanGuardPadElements = 1024;
 
             PruneSparseMode m_pruneMode = PruneSparseMode::PruneRandom;
             /// If true, the data is dependent on the problem size (e.g. serial)
