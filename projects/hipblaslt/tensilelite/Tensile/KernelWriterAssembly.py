@@ -109,6 +109,16 @@ from functools import lru_cache
 from typing import List, Mapping, NamedTuple, Optional, Tuple, Union
 
 import os
+import signal
+
+
+class _CodegenTimeoutError(Exception):
+    """Raised when per-kernel source generation exceeds HIPBLASLT_CODEGEN_TIMEOUT."""
+
+
+def _codegen_timeout_handler(signum, frame):
+    raise _CodegenTimeoutError("kernel source generation exceeded time budget")
+
 
 @dataclass
 class TailOptParams:
@@ -181,6 +191,19 @@ class KernelWriterAssembly(KernelWriter):
       return (0, "") # should this be an non zero number
 
     isCustom = isCustomKernelConfig(kernel)
+    # Optional per-kernel source-gen wall-clock timeout (seconds). Guards against
+    # CPU-side codegen infinite loops (e.g. subtile / fp32 source-gen on gfx1250)
+    # that no exception can catch and that gpu_recovery cannot help (they stall
+    # the build holding the GPU lock). Off unless HIPBLASLT_CODEGEN_TIMEOUT>0.
+    _cg_timeout = int(os.environ.get("HIPBLASLT_CODEGEN_TIMEOUT", "0") or "0")
+    _cg_armed = False
+    if _cg_timeout > 0:
+      try:
+        signal.signal(signal.SIGALRM, _codegen_timeout_handler)
+        signal.alarm(_cg_timeout)
+        _cg_armed = True
+      except (ValueError, OSError):
+        _cg_armed = False  # not main thread of this process: skip timeout
     try:
       if isCustom:
         code = self._getCustomKernelSource(kernel, CUSTOM_KERNEL_PATH)
@@ -219,10 +242,19 @@ class KernelWriterAssembly(KernelWriter):
       else:
         code = self._getKernelSource(kernel)
       errcode = 0
-    except RuntimeError as e:
-      printWarning(f"Failed to generate assembly source code for {kernel}: {e}")
+    except Exception as e:
+      # Broadened from RuntimeError so AssertionError (e.g. subtile wave64),
+      # KeyError, and _CodegenTimeoutError (CPU source-gen infinite loop cut off
+      # by HIPBLASLT_CODEGEN_TIMEOUT) all degrade to a graceful per-kernel
+      # rejection instead of aborting/stalling the build. In the errorTolerant
+      # (GA benchmark) path this kernel is pruned; the final library build still
+      # fails loudly (errorTolerant=False) if a winning kernel can't codegen.
+      printWarning(f"Failed to generate assembly source code for {kernel}: {type(e).__name__}: {e}")
       code = ""
       errcode = -2
+    finally:
+      if _cg_armed:
+        signal.alarm(0)
     return (errcode, code)
 
   def getSgprOccupancy(self, sgprs):
