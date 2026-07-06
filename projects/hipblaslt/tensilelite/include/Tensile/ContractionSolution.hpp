@@ -84,6 +84,10 @@ namespace TensileLite
         void*    e;
         uint32_t strideE1;
         uint32_t strideE2;
+        void*    gateResidual;
+        uint32_t gate_type;
+        uint32_t strideGate1;
+        uint32_t strideGate2;
         TAct     act0;
         TAct     act1;
         int      activationType;
@@ -602,6 +606,7 @@ namespace TensileLite
             bool             useGradient               = false;
             int              useBias                   = 0;
             bool             useE                      = false;
+            bool             useGateResidual           = false;
             std::string      useScaleAB                = "";
             bool             useScaleCD                = false;
             int              useScaleAlphaVec          = 0;
@@ -616,6 +621,7 @@ namespace TensileLite
 
             std::vector<int>              biasSrcWhiteList;
             std::vector<rocisa::DataType> biasDataTypeWhiteList;
+            std::vector<rocisa::DataType> gateResidualDataTypeWhiteList;
 
             int  sparse                     = 0;
             bool stochasticRounding         = false;
