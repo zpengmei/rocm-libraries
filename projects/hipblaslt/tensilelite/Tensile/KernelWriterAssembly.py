@@ -13971,12 +13971,18 @@ class KernelWriterAssembly(KernelWriter):
           module.add(SAddCU32(dst=sgpr(g0+3), src0=sgpr(g0+3), src1=0, comment="+tileOffset hi"))
         module.add(SOrB32(dst=sgpr(g0+3), src0=sgpr(g0+3), src1=hex(2<<30), comment="G0 type=2 (image)"))
         module.add(SMovB32(dst=sgpr(g1+0), src=hex(dss<<16), comment="G1 data_size; pad_enable=0 (no hw pad)"))
-        with self.allocTmpSgpr(1, tag="tdmDdim") as tS:
-          t = tS.idx
-          module.add(SLShiftLeftB32(dst=sgpr(t), shiftHex=hex(16), src=sizeI)); module.add(SOrB32(dst=sgpr(g1+1), src0=sgpr(g1+1), src1=sgpr(t), comment="tensor_dim0=M lo (elem)"))
-          module.add(SLShiftRightB32(dst=sgpr(t), shiftHex=hex(16), src=sizeI)); module.add(SOrB32(dst=sgpr(g1+2), src0=sgpr(g1+2), src1=sgpr(t), comment="tensor_dim0=M hi"))
-          module.add(SLShiftLeftB32(dst=sgpr(t), shiftHex=hex(16), src=sizeJ)); module.add(SOrB32(dst=sgpr(g1+2), src0=sgpr(g1+2), src1=sgpr(t), comment="tensor_dim1=N lo (elem)"))
-          module.add(SLShiftRightB32(dst=sgpr(t), shiftHex=hex(16), src=sizeJ)); module.add(SOrB32(dst=sgpr(g1+3), src0=sgpr(g1+3), src1=sgpr(t), comment="tensor_dim1=N hi"))
+        with self.allocTmpSgpr(3, tag="tdmDdim") as tS:
+          t = tS.idx; rd0 = tS.idx+1; rd1 = tS.idx+2
+          # aiter tdm_oob convention: tensor_dim = tile-start-RELATIVE remaining extent
+          # (Size - tileStart), NOT absolute M/N; HW clips the partial edge tile.
+          module.add(SMulI32(dst=sgpr(rd0), src0=sgpr("WorkGroup0"), src1=MT0, comment="rowStart=wg0*MT0"))
+          module.add(SSubU32(dst=sgpr(rd0), src0=sizeI, src1=sgpr(rd0), comment="tensor_dim0 = M - rowStart (rel)"))
+          module.add(SMulI32(dst=sgpr(rd1), src0=sgpr("WorkGroup1"), src1=MT1, comment="colStart=wg1*MT1"))
+          module.add(SSubU32(dst=sgpr(rd1), src0=sizeJ, src1=sgpr(rd1), comment="tensor_dim1 = N - colStart (rel)"))
+          module.add(SLShiftLeftB32(dst=sgpr(t), shiftHex=hex(16), src=sgpr(rd0))); module.add(SOrB32(dst=sgpr(g1+1), src0=sgpr(g1+1), src1=sgpr(t), comment="tensor_dim0 lo (elem,rel)"))
+          module.add(SLShiftRightB32(dst=sgpr(t), shiftHex=hex(16), src=sgpr(rd0))); module.add(SOrB32(dst=sgpr(g1+2), src0=sgpr(g1+2), src1=sgpr(t), comment="tensor_dim0 hi"))
+          module.add(SLShiftLeftB32(dst=sgpr(t), shiftHex=hex(16), src=sgpr(rd1))); module.add(SOrB32(dst=sgpr(g1+2), src0=sgpr(g1+2), src1=sgpr(t), comment="tensor_dim1 lo (elem,rel)"))
+          module.add(SLShiftRightB32(dst=sgpr(t), shiftHex=hex(16), src=sgpr(rd1))); module.add(SOrB32(dst=sgpr(g1+3), src0=sgpr(g1+3), src1=sgpr(t), comment="tensor_dim1 hi"))
         module.add(SOrB32(dst=sgpr(g1+3), src0=sgpr(g1+3), src1=hex((MT0 & 0xFFFF)<<16), comment="tile_dim0=MT0 (contiguous, no pad-fold)"))
         module.add(SOrB32(dst=sgpr(g1+4), src0=sgpr(g1+4), src1=hex(MT1 & 0xFFFF), comment="tile_dim1=MT1 (elem)"))
         module.add(SMovB32(dst=sgpr(g1+5), src=1, comment="Dim0Stride=1 (row contiguous, elem)"))
