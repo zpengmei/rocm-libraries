@@ -44,6 +44,8 @@
 #include <miopen/logger.hpp>
 #include <miopen/conv/heuristics/ai_heuristics.hpp>
 #include <fdeep/fdeep.hpp>
+#include <map>
+#include <set>
 #include <sstream>
 #include <string>
 #include <vector>
@@ -225,6 +227,35 @@ protected:
 
     std::string GetAlternativeLayout() const { return spatial_dim == 2 ? "NHWC" : "NDHWC"; }
 };
+
+// Appends the expected raw-numeric block to `expected`, mirroring the production assembly in
+// ExtractTunaNetNDFeatures: walk the metadata feature list in order, skip the categoricals
+// (which are one-hot encoded separately), and emit the golden value for each remaining name.
+//
+// Driving the block off metadata.GetFeatures() -- instead of a positional literal -- keeps the
+// golden test robust to retrains that drop, add, or reorder raw features (e.g. dropping the
+// constant dilation_* params for a 3D model): only the shipped metadata decides which values are
+// emitted and in what order. `golden_values` is an independent, hand-written map of name->value
+// for the smoke problem, so the test still validates the actual feature values (not just the
+// count). A metadata feature name with no golden value fails loudly, forcing a deliberate update
+// of the contract on the next retrain.
+inline void AppendExpectedRawFeatures(std::vector<float>& expected,
+                                      const immed_mode::MetadataND& metadata,
+                                      const std::map<std::string, float>& golden_values)
+{
+    static const std::set<std::string> categorical = {
+        "in_layout", "fil_layout", "out_layout", "precision", "direction"};
+    for(const auto& name : metadata.GetFeatures())
+    {
+        if(categorical.count(name) != 0)
+            continue;
+        const auto it = golden_values.find(name);
+        ASSERT_NE(it, golden_values.end())
+            << "No golden value for raw feature '" << name
+            << "'; update golden_values for the retrained metadata.";
+        expected.push_back(it->second);
+    }
+}
 
 // --- MetadataND tests ---
 // cppcheck-suppress syntaxError
@@ -483,25 +514,28 @@ TEST_P(GPU_ConvNDAIHeuristics_FP32, ExtractTunaNet2dFeaturesGolden)
     append_one_hot(metadata.EncodeDirection(problem.GetDirection()),
                    metadata.GetDirectionClassCount());
 
-    // Raw passthrough: C_in,H_in,W_in,C_out,H_out,W_out,K_h,K_w then
-    // pad/stride/dilation/batch/group.
-    const std::vector<float> raw = {64.0f,
-                                    56.0f,
-                                    56.0f,
-                                    64.0f,
-                                    56.0f,
-                                    56.0f,
-                                    3.0f,
-                                    3.0f,
-                                    1.0f,
-                                    1.0f,
-                                    1.0f,
-                                    1.0f,
-                                    1.0f,
-                                    1.0f,
-                                    1.0f,
-                                    1.0f};
-    expected.insert(expected.end(), raw.begin(), raw.end());
+    // Golden raw-numeric values for the 2D smoke problem, keyed by feature name. The metadata
+    // feature list decides which of these are emitted and in what order (see
+    // AppendExpectedRawFeatures), so this stays correct across retrains that drop/reorder params.
+    const std::map<std::string, float> golden_raw = {
+        {"in_channels", 64.0f},
+        {"in_h", 56.0f},
+        {"in_w", 56.0f},
+        {"out_channels", 64.0f},
+        {"out_h", 56.0f},
+        {"out_w", 56.0f},
+        {"fil_h", 3.0f},
+        {"fil_w", 3.0f},
+        {"pad_h", 1.0f},
+        {"pad_w", 1.0f},
+        {"conv_stride_h", 1.0f},
+        {"conv_stride_w", 1.0f},
+        {"dilation_h", 1.0f},
+        {"dilation_w", 1.0f},
+        {"batchsize", 1.0f},
+        {"group_count", 1.0f},
+    };
+    AppendExpectedRawFeatures(expected, metadata, golden_raw);
 
     const auto derived = common::EngineeredConvFeatures(
         1, 64, 64, 56, 56, 56, 56, 3, 3, 1, metadata.GetNumCu(), common::ConvDirection::Forward);
@@ -565,10 +599,34 @@ TEST_P(GPU_ConvNDAIHeuristics_FP32, ExtractTunaNet3dFeaturesGolden)
     append_one_hot(metadata.EncodeDirection(problem.GetDirection()),
                    metadata.GetDirectionClassCount());
 
-    const std::vector<float> raw = {32.0f, 28.0f, 28.0f, 28.0f, 32.0f, 28.0f, 28.0f, 28.0f,
-                                    3.0f,  3.0f,  3.0f,  1.0f,  1.0f,  1.0f,  1.0f,  1.0f,
-                                    1.0f,  1.0f,  1.0f,  1.0f,  64.0f, 1.0f};
-    expected.insert(expected.end(), raw.begin(), raw.end());
+    // Golden raw-numeric values for the 3D smoke problem, keyed by feature name. The 3D metadata
+    // omits the (constant) dilation_* params, so AppendExpectedRawFeatures emits 19 values here;
+    // listing dilation_* anyway keeps the map valid if a future retrain reintroduces them.
+    const std::map<std::string, float> golden_raw = {
+        {"in_channels", 32.0f},
+        {"in_d", 28.0f},
+        {"in_h", 28.0f},
+        {"in_w", 28.0f},
+        {"out_channels", 32.0f},
+        {"out_d", 28.0f},
+        {"out_h", 28.0f},
+        {"out_w", 28.0f},
+        {"fil_d", 3.0f},
+        {"fil_h", 3.0f},
+        {"fil_w", 3.0f},
+        {"pad_d", 1.0f},
+        {"pad_h", 1.0f},
+        {"pad_w", 1.0f},
+        {"conv_stride_d", 1.0f},
+        {"conv_stride_h", 1.0f},
+        {"conv_stride_w", 1.0f},
+        {"dilation_d", 1.0f},
+        {"dilation_h", 1.0f},
+        {"dilation_w", 1.0f},
+        {"batchsize", 64.0f},
+        {"group_count", 1.0f},
+    };
+    AppendExpectedRawFeatures(expected, metadata, golden_raw);
 
     const auto derived = common::EngineeredConvFeatures(64,
                                                         32,
