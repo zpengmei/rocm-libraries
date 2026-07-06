@@ -13912,7 +13912,7 @@ class KernelWriterAssembly(KernelWriter):
     if kernel.get("TDMStoreEdge") and edge:
       # Native-OOB TDM store: DMA the storeRemap LDS tile to global D.
       # Encoding mirrors TensorDataMover setters (2D dim/tile + bpe stride + pad).
-      bpe = self.states.bpeCexternal
+      bpe = self.states.bpeCexternalGSU1  # storeRemap LDS + D use GSU1 bpe (matches GSULog2BpeD)
       log2bpe = int(log2(bpe))
       MT0 = kernel["MacroTile0"]; MT1 = kernel["MacroTile1"]
       ldsPad = max(kernel["StoreRemapVectorWidth"], kernel["MIOutputVectorWidth"])
