@@ -13,11 +13,16 @@ test_categories:
 
   standard:
     description: "Precheckin - same as Jenkins precheckin (timeout: 2 hours)"
+    # TEST commit
+    test_yaml: rocblas_smoke.yaml
     test_patterns:
-      - "*quick*"
-      - "*pre_checkin*"
     exclude:
-      - "*known_bug*"
+    # to restore below
+    #test_patterns:
+    #  - "*quick*"
+    #  - "*pre_checkin*"
+    #exclude:
+    #  - "*known_bug*"
     labels:
       - "standard"
       - "pr"
