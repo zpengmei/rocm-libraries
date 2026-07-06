@@ -77,8 +77,8 @@ struct reduce_benchmark : public primbench::benchmark_interface
     state.set_items(m_items);
     state.add_reads<T>(m_items);
     state.add_reads<K>(m_items);
-    state.add_writes<T>(m_items);
-    state.add_writes<K>(m_items);
+    state.add_writes<T>(unique_keys);
+    state.add_writes<K>(unique_keys);
 
     state.run([&] {
       thrust::reduce_by_key(
@@ -123,8 +123,8 @@ int main(int argc, char* argv[])
 {
   primbench::settings settings;
   settings.size                 = 1; // bench_utils::sizes() calculates it later.
-  settings.min_gpu_ms_per_batch = 100;
-  settings.batch_window_size    = 3;
+  settings.min_gpu_ms_per_batch = 150;
+  settings.batch_window_size    = 2;
   primbench::executor executor(argc, argv, settings, primbench::flags::sync);
 
   constexpr size_t max_segment_sizes[] = {1, 4, 8};
