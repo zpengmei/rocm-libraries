@@ -1,5 +1,8 @@
 # Tensilelite
 
+See [TensileLite Python Packaging Refactor](docs/python-packaging-refactor.md)
+for the proposed package and import-namespace migration plan.
+
 ## Building and Running Tests
 
 While full test suites can be run with a single `tox` command, developers may wish to
