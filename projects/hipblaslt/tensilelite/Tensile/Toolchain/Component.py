@@ -376,9 +376,18 @@ class Linker(Component):
         """
         if os_name == "nt":
             return True
-        from os import sysconf
+        from os import sysconf, environ
         line_length = sum(len(arg) for arg in args) + len(args) - 1
-        return line_length >= sysconf("SC_ARG_MAX")
+        # The kernel's exec() limit (E2BIG) counts the argv bytes PLUS the
+        # environment PLUS per-string pointer overhead, so it trips well below
+        # SC_ARG_MAX on a bare argv-length check. With thousands of long-named
+        # kernel object paths (~130-char BaseNames), argv alone approaches
+        # SC_ARG_MAX and exec fails even though this check said "fine". Account
+        # for the environment and keep a safety margin (and force a response
+        # file past a large arg count regardless).
+        env_length = sum(len(k) + len(v) + 2 for k, v in environ.items())
+        arg_max = sysconf("SC_ARG_MAX")
+        return (line_length + env_length + 131072) >= arg_max or len(args) > 2000
 
     def __call__(self, srcPaths: List[str], destPath: str):
         """
