@@ -212,7 +212,7 @@ endif()
 # hipCUB library
 
 if(HIPCUB_SWAP_TO_LEGACY_AND_IGNORE_PROJECT_VERSIONING)
-  message(WARNING "Do rely on HIPCUB_SWAP_TO_LEGACY_AND_IGNORE_PROJECT_VERSIONING! It will be removed without warning!")
+  message(WARNING "Do not rely on HIPCUB_SWAP_TO_LEGACY_AND_IGNORE_PROJECT_VERSIONING! It will be removed without warning!")
 
   # 'GIT_PATH' is set by including 'cmake/Depedencies.cmake'.
   if(NOT DEFINED GIT_PATH)
