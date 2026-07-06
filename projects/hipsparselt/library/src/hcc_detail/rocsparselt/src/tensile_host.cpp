@@ -310,6 +310,7 @@ namespace
         TensileLite::TensorDescriptor scaleC{"scaleC"};
         TensileLite::TensorDescriptor scaleD{"scaleD"};
         TensileLite::TensorDescriptor scaleAlphaVec{"scaleAlphaVec"};
+        TensileLite::TensorDescriptor gate{"gate"};
 
         // The ContractionProblemGemm
         TensileLite::ContractionProblemGemm tensileProblem(a,
@@ -323,6 +324,7 @@ namespace
                                                        scaleC,
                                                        scaleD,
                                                        scaleAlphaVec,
+                                                       gate,
                                                        freeIndex,
                                                        batchIndex,
                                                        boundIndex,
@@ -424,6 +426,19 @@ namespace
                                                                                 : d.sizes()[0],
                                             prob.order == rocsparselt_order_row);
         }
+
+        // set gate residual
+        if(prob.gate != nullptr)
+        {
+            auto             gateType    = hipDataType_to_tensile_type(prob.gate_type);
+            std::vector<size_t> gateSizes   = {prob.m, prob.n, prob.batch_count};
+            std::vector<size_t> gateStrides = {prob.row_stride_g,
+                                               prob.col_stride_g,
+                                               prob.batch_stride_g};
+            tensileProblem.setUseGateResidual(true);
+            tensileProblem.setGateResidual(gateType, gateSizes, gateStrides);
+        }
+
         return tensileProblem;
     }
 
@@ -469,6 +484,9 @@ namespace
 
         // set bias vector
         inputs.bias = reinterpret_cast<const void*>(prob.bias_vector);
+
+        // set gate residual
+        inputs.gateResidual = reinterpret_cast<const void*>(prob.gate);
         if(prob.alpha_vector_scaling)
             inputs.scaleAlphaVec = reinterpret_cast<const void*>(prob.alpha);
 
