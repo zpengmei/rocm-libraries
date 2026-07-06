@@ -13910,17 +13910,18 @@ class KernelWriterAssembly(KernelWriter):
     # ==== TDMStoreEdge: native-OOB TDM store (reuse storeRemap LDS staging) ====
     # UNVERIFIED numeric correctness (pending GPU). Bitfields per amd_gfx1250_TDM.h.
     if kernel.get("TDMStoreEdge") and edge:
-      # Native-OOB TDM store. Descriptor per rocRoller TDMDescriptor spec
-      # (shared/rocroller/lib/source/CodeGen/TensorDataMover.cpp). Direction is the
-      # instruction (no is_store bit); Reserved0{0,30}=1; dim0=contiguous axis in BYTES,
-      # dim1=row axis in ELEMENTS; BOTH TensorDimStrides set in BYTES (48-bit each).
+      # TDM store per authoritative aiter/MLIR semantics: ELEMENT units for
+      # tensor_dim / tensor_dim_stride / tile_dim (only G0 global+LDS base are byte addrs).
+      # dim0 = innermost/contiguous (row, M); the ONE programmable stride (G1[5]) holds the
+      # leading/outer (col) pitch = StrideD (elements). storeRemap LDS is already
+      # row-major-within-column (col pitch = MT0+ldsPad); fold that pad into tile_dim0 and
+      # DISABLE hw pad (store cannot de-pad). OOB handled by tensor_dim0/1 = real M/N.
       bpe = self.states.bpeCexternalGSU1
       log2bpe = int(log2(bpe))
       MT0 = kernel["MacroTile0"]; MT1 = kernel["MacroTile1"]
       ldsPad = max(kernel["StoreRemapVectorWidth"], kernel["MIOutputVectorWidth"])
+      ldsPitch = MT0 + ldsPad
       dss = {1:0,2:1,4:2,8:3}[bpe]
-      padInterval = int(log2((MT0*bpe)//4)) - 1
-      padAmount = ((ldsPad*bpe)//4) - 1
       packedD1 = kernel["PackedC1IndicesX"]
       strideD1 = "StrideD%s" % (self.states.indexChars[packedD1[0]])
       sizeI = self.sizeRef(kernel["ProblemType"]["Index0"])
@@ -13930,33 +13931,29 @@ class KernelWriterAssembly(KernelWriter):
       with self.allocTmpSgpr(16, alignment=4, tag="tdmDStoreDesc") as descS:
         g0 = descS.idx; g1 = g0 + 4
         for k in range(12): module.add(SMovB32(dst=sgpr(g0+k), src=0, comment="zero D# dword"))
-        module.add(SMovB32(dst=sgpr(g0+0), src=1, comment="G0 Reserved0=1 (no is_store bit)"))
+        module.add(SMovB32(dst=sgpr(g0+0), src=hex(0x1 | (1<<3)), comment="G0 Reserved0=1 | m_is_store(bit3)"))
         with self.allocTmpSgpr(2, alignment=2, tag="tdmDAddr") as aS:
           o = aS.idx
           module.add(SMulI32(dst=sgpr(o), src0=sgpr("WorkGroup1"), src1=MT1, comment="col0=wg1*MT1"))
           module.add(SMulI32(dst=sgpr(o), src0=sgpr(o), src1=sgpr(strideD1), comment="*StrideD"))
           module.add(SMulI32(dst=sgpr(o+1), src0=sgpr("WorkGroup0"), src1=MT0, comment="row0=wg0*MT0"))
           module.add(SAddU32(dst=sgpr(o), src0=sgpr(o), src1=sgpr(o+1), comment="tileOriginElem"))
-          if log2bpe: module.add(SLShiftLeftB32(dst=sgpr(o), shiftHex=hex(log2bpe), src=sgpr(o), comment="*bpe"))
-          module.add(SMovB64(dst=sgpr(g0+2,2), src=sgpr("AddressD",2), comment="G0 global=D base"))
+          if log2bpe: module.add(SLShiftLeftB32(dst=sgpr(o), shiftHex=hex(log2bpe), src=sgpr(o), comment="*bpe -> byte addr"))
+          module.add(SMovB64(dst=sgpr(g0+2,2), src=sgpr("AddressD",2), comment="G0 global=D base (byte)"))
           module.add(SAddU32(dst=sgpr(g0+2), src0=sgpr(g0+2), src1=sgpr(o), comment="+tileOffset lo"))
           module.add(SAddCU32(dst=sgpr(g0+3), src0=sgpr(g0+3), src1=0, comment="+tileOffset hi"))
         module.add(SOrB32(dst=sgpr(g0+3), src0=sgpr(g0+3), src1=hex(2<<30), comment="G0 type=2 (image)"))
-        module.add(SMovB32(dst=sgpr(g1+0), src=hex((dss<<16)|(1<<20)|(padInterval<<22)|(padAmount<<25)), comment="G1 data_size|padMode|interval|amount"))
-        with self.allocTmpSgpr(2, tag="tdmDdim") as dS:
-          t = dS.idx; t2 = dS.idx+1
-          module.add(SLShiftLeftB32(dst=sgpr(t), shiftHex=hex(log2bpe), src=sizeJ, comment="TensorDim0 = N*bpe (bytes) [rocRoller: ToBytes(subDim1.size)]"))
-          module.add(SLShiftLeftB32(dst=sgpr(t2), shiftHex=hex(16), src=sgpr(t))); module.add(SOrB32(dst=sgpr(g1+1), src0=sgpr(g1+1), src1=sgpr(t2), comment="TensorDim0 lo"))
-          module.add(SLShiftRightB32(dst=sgpr(t2), shiftHex=hex(16), src=sgpr(t))); module.add(SOrB32(dst=sgpr(g1+2), src0=sgpr(g1+2), src1=sgpr(t2), comment="TensorDim0 hi"))
-          module.add(SLShiftLeftB32(dst=sgpr(t2), shiftHex=hex(16), src=sizeI)); module.add(SOrB32(dst=sgpr(g1+2), src0=sgpr(g1+2), src1=sgpr(t2), comment="TensorDim1=M lo [rocRoller: subDim0.size]"))
-          module.add(SLShiftRightB32(dst=sgpr(t2), shiftHex=hex(16), src=sizeI)); module.add(SOrB32(dst=sgpr(g1+3), src0=sgpr(g1+3), src1=sgpr(t2), comment="TensorDim1=M hi [rocRoller: subDim0.size]"))
-          module.add(SLShiftLeftB32(dst=sgpr(t), shiftHex=hex(log2bpe), src=sgpr(strideD1), comment="TensorDim1Stride = StrideD*bpe (bytes)"))
-          module.add(SLShiftLeftB32(dst=sgpr(t2), shiftHex=hex(16), src=sgpr(t))); module.add(SOrB32(dst=sgpr(g1+6), src0=sgpr(g1+6), src1=sgpr(t2), comment="Dim1Stride lo16"))
-          module.add(SLShiftRightB32(dst=sgpr(g1+7), shiftHex=hex(16), src=sgpr(t), comment="Dim1Stride hi32"))
-        module.add(SOrB32(dst=sgpr(g1+3), src0=sgpr(g1+3), src1=hex(((MT1*bpe)&0xFFFF)<<16), comment="TileDim0=MT1*bpe (bytes) [rocRoller: ToBytes(n)]"))
-        module.add(SOrB32(dst=sgpr(g1+4), src0=sgpr(g1+4), src1=hex(MT0 & 0xFFFF), comment="TileDim1=MT0 (elem) [rocRoller: m]"))
-        module.add(SMovB32(dst=sgpr(g1+5), src=bpe, comment="TensorDim0Stride=bpe (bytes)"))
-        tdmStoreInst = TensorStoreFromLds(sgpr(g0,4), sgpr(g1,8), None, None, "TDM store D (edge, native OOB)")
+        module.add(SMovB32(dst=sgpr(g1+0), src=hex(dss<<16), comment="G1 data_size (bf16=1); pad_enable=0 (no hw pad)"))
+        with self.allocTmpSgpr(1, tag="tdmDdim") as tS:
+          t = tS.idx
+          module.add(SLShiftLeftB32(dst=sgpr(t), shiftHex=hex(16), src=sizeI)); module.add(SOrB32(dst=sgpr(g1+1), src0=sgpr(g1+1), src1=sgpr(t), comment="tensor_dim0=M lo (elem)"))
+          module.add(SLShiftRightB32(dst=sgpr(t), shiftHex=hex(16), src=sizeI)); module.add(SOrB32(dst=sgpr(g1+2), src0=sgpr(g1+2), src1=sgpr(t), comment="tensor_dim0=M hi"))
+          module.add(SLShiftLeftB32(dst=sgpr(t), shiftHex=hex(16), src=sizeJ)); module.add(SOrB32(dst=sgpr(g1+2), src0=sgpr(g1+2), src1=sgpr(t), comment="tensor_dim1=N lo (elem)"))
+          module.add(SLShiftRightB32(dst=sgpr(t), shiftHex=hex(16), src=sizeJ)); module.add(SOrB32(dst=sgpr(g1+3), src0=sgpr(g1+3), src1=sgpr(t), comment="tensor_dim1=N hi"))
+        module.add(SOrB32(dst=sgpr(g1+3), src0=sgpr(g1+3), src1=hex((ldsPitch & 0xFFFF)<<16), comment="tile_dim0=MT0+ldsPad (fold pad, elem)"))
+        module.add(SOrB32(dst=sgpr(g1+4), src0=sgpr(g1+4), src1=hex(MT1 & 0xFFFF), comment="tile_dim1=MT1 (elem)"))
+        module.add(SMovB32(dst=sgpr(g1+5), src=sgpr(strideD1), comment="programmable stride(G1[5]) = leading/col pitch StrideD (elem)"))
+        tdmStoreInst = TensorStoreFromLds(sgpr(g0,4), sgpr(g1,8), None, None, "TDM store D (edge, native OOB, element units)")
         tdmStoreInst.setMemToken(MemTokenData([self.states.memTokenLdsBuffer0]))
         module.add(tdmStoreInst)
         module.add(SWaitTensorcnt(tensorcnt=0, comment="wait TDM store"))
