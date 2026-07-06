@@ -13928,7 +13928,9 @@ class KernelWriterAssembly(KernelWriter):
           module.add(SLShiftLeftB32(dst=sgpr(ti), shiftHex=hex(16), src=sgpr("SizeI"), comment="tdim1(M) lo")); module.add(SOrB32(dst=sgpr(g1+2), src0=sgpr(g1+2), src1=sgpr(ti)))
           module.add(SLShiftRightB32(dst=sgpr(ti), shiftHex=hex(16), src=sgpr("SizeI"), comment="tdim1(M) hi")); module.add(SOrB32(dst=sgpr(g1+3), src0=sgpr(g1+3), src1=sgpr(ti)))
         module.add(SMovB32(dst=sgpr(g1+5), src=sgpr(strideD1), comment="D#G1.dw5: tensor_dim0_stride = StrideD (TODO bpe scale)"))
-        module.add(TensorStoreFromLds(sgpr(g0,4), sgpr(g1,8), None, None, "TDM store D (edge, native OOB via tensor_dim)"))
+        tdmStoreInst = TensorStoreFromLds(sgpr(g0,4), sgpr(g1,8), None, None, "TDM store D (edge, native OOB via tensor_dim)")
+        tdmStoreInst.setMemToken(MemTokenData([self.states.memTokenLdsBuffer0]))
+        module.add(tdmStoreInst)
         module.add(SWaitTensorcnt(tensorcnt=0, comment="wait TDM store"))
       return module, 1
 
