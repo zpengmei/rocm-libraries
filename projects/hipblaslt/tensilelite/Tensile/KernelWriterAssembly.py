@@ -13985,11 +13985,9 @@ class KernelWriterAssembly(KernelWriter):
           module.add(SLShiftRightB32(dst=sgpr(t), shiftHex=hex(16), src=sgpr(rd1))); module.add(SOrB32(dst=sgpr(g1+3), src0=sgpr(g1+3), src1=sgpr(t), comment="tensor_dim1 hi"))
         module.add(SOrB32(dst=sgpr(g1+3), src0=sgpr(g1+3), src1=hex((MT0 & 0xFFFF)<<16), comment="tile_dim0=MT0 (contiguous, no pad-fold)"))
         module.add(SOrB32(dst=sgpr(g1+4), src0=sgpr(g1+4), src1=hex(MT1 & 0xFFFF), comment="tile_dim1=MT1 (elem)"))
-        module.add(SMovB32(dst=sgpr(g1+5), src=1, comment="Dim0Stride=1 (row contiguous, elem)"))
-        with self.allocTmpSgpr(1, tag="tdmDim1Str") as sS:
-          st = sS.idx
-          module.add(SLShiftLeftB32(dst=sgpr(st), shiftHex=hex(16), src=sgpr(strideD1))); module.add(SOrB32(dst=sgpr(g1+6), src0=sgpr(g1+6), src1=sgpr(st), comment="Dim1Stride=StrideD lo16 (col, elem)"))
-          module.add(SLShiftRightB32(dst=sgpr(g1+7), shiftHex=hex(16), src=sgpr(strideD1), comment="Dim1Stride=StrideD hi (col)"))
+        # aiter tdm_oob: ONLY sgpr5 = tensor_dim0_stride = OUTER(leading/col) stride in elements
+        # = StrideD. Inner(row) stride is implicit 1. sgpr6/7 = 0 (no higher-dim stride for 2D).
+        module.add(SMovB32(dst=sgpr(g1+5), src=sgpr(strideD1), comment="sgpr5 = tensor_dim_stride = outer(col) stride = StrideD (elem)"))
         tdmStoreInst = TensorStoreFromLds(sgpr(g0,4), sgpr(g1,8), None, None, "TDM store D (edge, dedicated contiguous LDS buffer)")
         tdmStoreInst.setMemToken(MemTokenData([self.states.memTokenLdsBuffer0]))
         module.add(tdmStoreInst)

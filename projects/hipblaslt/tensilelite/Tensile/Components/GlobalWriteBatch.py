@@ -352,6 +352,9 @@ class GlobalWriteBatchWriter:
        (self.parentWriter.states.useBias != DataDirection.NONE or \
         self.kernel["ProblemType"].get("UseScaleAlphaVec", 0))
     if not isMultiDU:
+      if drainBiasSav:
+        module.add(SWaitCnt(dscnt=0, comment="drain bias/SAV LDS reads (non-multiDU pre-store race fix)"))
+        module.add(SBarrier(comment="sync waves before subtile paired stores (non-multiDU race fix)"))
       self._emitAdd(module)
     if drainBiasSav:
       module.add(SWaitCnt(dscnt=0, comment="drain bias/SAV LDS reads"))
